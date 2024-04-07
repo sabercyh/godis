@@ -1,9 +1,8 @@
 package data
 
 import (
-	"strconv"
-
 	"github.com/godis/conf"
+	"strconv"
 )
 
 type Gobj struct {

@@ -17,11 +17,42 @@ type GodisCommand struct {
 	arity int
 }
 
-var cmdTable []GodisCommand = []GodisCommand{
-	{"get", getCommand, 2},
-	{"set", setCommand, 3},
-	{"expire", expireCommand, 3},
-	// TODO
+func NewGodisCommand(name string, proc CommandProc, arity int) *GodisCommand {
+	return &GodisCommand{
+		name: name,
+		proc: proc,
+		arity: arity,
+	}
+}
+
+// var cmdTable []GodisCommand = []GodisCommand{
+// 	{"get", getCommand, 2},
+// 	{"set", setCommand, 3},
+// 	{"expire", expireCommand, 3},
+// 	// TODO
+// }
+
+var cmdTable map[string]*GodisCommand = make(map[string]*GodisCommand)
+
+func RegisterCommand(godisCommand *GodisCommand) {
+	cmdTable[godisCommand.name] = godisCommand
+}
+
+func LoadCommonCommand() {
+	// set 
+	RegisterCommand(NewGodisCommand("get", getCommand, 2))
+	// get
+	RegisterCommand(NewGodisCommand("set", setCommand, 3))
+	// expire
+	RegisterCommand(NewGodisCommand("expire", expireCommand, 3))
+}
+
+func LoadCommand() {
+	// 加载普通命令
+	LoadCommonCommand()
+
+
+	// 加载Zset相关命令
 }
 
 func expireIfNeeded(key *data.Gobj) {

@@ -98,6 +98,7 @@ func nextPower(size int64) int64 {
 	return -1
 }
 
+// 初始化 扩容
 func (dict *Dict) expand(size int64) error {
 	sz := nextPower(size)
 	if dict.isRehashing() || (dict.hts[0] != nil && dict.hts[0].size >= sz) {
@@ -119,13 +120,17 @@ func (dict *Dict) expand(size int64) error {
 	return nil
 }
 
+// 是否要扩容
 func (dict *Dict) expandIfNeeded() error {
+	// 如果正在rehash，则不需要扩容
 	if dict.isRehashing() {
 		return nil
 	}
+	//
 	if dict.hts[0] == nil {
 		return dict.expand(INIT_SIZE)
 	}
+	// 当已经使用的空间是现存空间的三倍时，才会触发扩容
 	if (dict.hts[0].used > dict.hts[0].size) && (dict.hts[0].used/dict.hts[0].size > FORCE_RATIO) {
 		return dict.expand(dict.hts[0].size * GROW_RATIO)
 	}
