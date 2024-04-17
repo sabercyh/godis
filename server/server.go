@@ -1,31 +1,27 @@
 package server
 
 import (
-	"hash/fnv"
 	"log"
 	"time"
-
 	"github.com/godis/ae"
-	"github.com/godis/conf"
 	"github.com/godis/data"
 	"github.com/godis/db"
 	"github.com/godis/net"
 )
 
 type GodisServer struct {
-	fd      int
+	fd      int 
 	port    int
 	DB      *db.GodisDB
 	clients map[int]*GodisClient
 	AeLoop  *ae.AeLoop
 }
 
-// 定义server全局变量
-var server *GodisServer
+var server *GodisServer // 定义server全局变量
 
 func AcceptHandler(loop *ae.AeLoop, fd int, extra any) {
-	// 与监听套接字的fd建立起连接，得到表示这个连接的fd
-	cfd, err := net.Accept(fd)
+	// 与监听套接字的fd建立起连接，返回监听这个连接的fd
+	cfd, err := net.Accept(fd) 
 	if err != nil {
 		log.Printf("accept err: %v\n", err)
 		return
@@ -43,8 +39,7 @@ func AcceptHandler(loop *ae.AeLoop, fd int, extra any) {
 
 const EXPIRE_CHECK_COUNT int = 100
 
-// background job, runs every 100ms
-// TimeEvent 用于后台进行淘汰工作
+// background job, runs every 100ms 用于后台进行淘汰工作
 func ServerCron(loop *ae.AeLoop, id int, extra any) {
 	for i := 0; i < EXPIRE_CHECK_COUNT; i++ {
 		entry := server.DB.Expire.RandomGet()
@@ -58,44 +53,25 @@ func ServerCron(loop *ae.AeLoop, id int, extra any) {
 	}
 }
 
-// 计算两个Godis Object的类型是否相等
-func GStrEqual(a, b *data.Gobj) bool {
-	if a.Type_ != conf.GSTR || b.Type_ != conf.GSTR {
-		return false
-	}
-	return a.StrVal() == b.StrVal()
-}
-
-// GStrHash 用于唯一标识一个Godis Object
-func GStrHash(key *data.Gobj) int64 {
-	if key.Type_ != conf.GSTR {
-		return 0
-	}
-	hash := fnv.New64()
-	hash.Write([]byte(key.StrVal()))
-	return int64(hash.Sum64())
-}
-
 func InitGodisServerInstance(port int) (*GodisServer, error) {
 	// 创建redis服务器实例
 	server = &GodisServer{
 		port:    port,
 		clients: make(map[int]*GodisClient),
 		DB: &db.GodisDB{
-			Data:   data.DictCreate(data.DictType{HashFunc: GStrHash, EqualFunc: GStrEqual}),
-			Expire: data.DictCreate(data.DictType{HashFunc: GStrHash, EqualFunc: GStrEqual}),
+			Data:   data.DictCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}),
+			Expire: data.DictCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}),
 		},
 	}
-
-	// 创建AE事件循环
-	// 调用epoll_create 监听系统IO
+	// 创建AE事件循环 调用epoll_create 监听系统IO
 	var err error
 	if server.AeLoop, err = ae.AeLoopCreate(); err != nil {
 		return nil, err
 	}
 	// 监听端口
-	server.fd, err = net.TcpServer(server.port)
-
+	if server.fd, err = net.TcpServer(server.port) ; err != nil {
+		log.Println("server start fail")
+	}
 	// 给服务器端fd添加事件 (fd:监听某个端口事件)
 	// 用于监听是否有连接到达，当有连接到达时，调用AcceptHandler对连接请求进行处理
 	// 对于服务器端fd事件，只需要读取是够有连接到达，因此设置为ae.AE_READABLE

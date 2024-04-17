@@ -113,15 +113,13 @@ func (loop *AeLoop) AddFileEvent(fd int, mask FeType, proc FileProc, extra any) 
 		return
 	}
 
-	// Create a new file event structure instance, setting the file descriptor, event mask, event handler function, and extra parameter
-	var fe AeFileEvent
-	fe.fd = fd
-	fe.mask = mask
-	fe.proc = proc
-	fe.extra = extra
-
 	// Add the new file event to the AeLoop's FileEvents map
-	loop.FileEvents[getFeKey(fd, mask)] = &fe
+	loop.FileEvents[getFeKey(fd, mask)] = &AeFileEvent{
+		fd: fd,
+		mask: mask,
+		proc: proc,
+		extra: extra,
+	}
 
 	// Log the operation of adding a file event
 	log.Printf("ae add file event fd:%v, mask:%v\n", fd, mask)

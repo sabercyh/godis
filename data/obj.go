@@ -3,6 +3,8 @@ package data
 import (
 	"github.com/godis/conf"
 	"strconv"
+	"hash/fnv"
+	"errors"
 )
 
 type Gobj struct {
@@ -53,3 +55,43 @@ func (o *Gobj) DecrRefCount() {
 		o.Val_ = nil
 	}
 }
+
+func (o *Gobj) ParseFloat() (float64, error) {
+	switch v := o.Val_.(type) {
+	case float64:
+		return v, nil
+	case string:
+		if parsedValue, err := strconv.ParseFloat(v, 64) ; err != nil {
+			return 0.0, err
+		} else {
+			return parsedValue, nil
+		}
+	}
+	return 0.0, errors.New("转换浮点数发生未知错误")
+}
+
+func (o *Gobj) CheckType(t conf.Gtype) error {
+	if o.Type_ == t {
+		return nil
+	}
+	return errors.New("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value")
+}
+
+// 计算两个Godis Object的类型是否相等
+func GStrEqual(a, b *Gobj) bool {
+	if a.Type_ != conf.GSTR || b.Type_ != conf.GSTR {
+		return false
+	}
+	return a.StrVal() == b.StrVal()
+}
+
+// GStrHash 用于唯一标识一个Godis Object
+func GStrHash(key *Gobj) int64 {
+	if key.Type_ != conf.GSTR {
+		return 0
+	}
+	hash := fnv.New64()
+	hash.Write([]byte(key.StrVal()))
+	return int64(hash.Sum64())
+}
+

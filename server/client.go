@@ -5,7 +5,6 @@ import (
 	"log"
 	"strconv"
 	"strings"
-
 	"github.com/godis/ae"
 	"github.com/godis/conf"
 	"github.com/godis/data"
@@ -14,7 +13,7 @@ import (
 )
 
 type GodisClient struct {
-	fd       int // 表示client与server连接的fd
+	fd       int 
 	db       *db.GodisDB 
 	args     []*data.Gobj
 	reply    *data.List
@@ -26,15 +25,14 @@ type GodisClient struct {
 	bulkLen  int
 }
 
-// create godis client instance
 // 建立连接成功创建client实例
 func InitGodisClientInstance(fd int, server *GodisServer) *GodisClient {
-	var client GodisClient
-	client.fd = fd
-	client.db = server.DB
-	client.queryBuf = make([]byte, conf.GODIS_IO_BUF)
-	client.reply = data.ListCreate(data.ListType{EqualFunc: GStrEqual})
-	return &client
+	return &GodisClient{
+		fd: fd,
+		db: server.DB,
+		queryBuf: make([]byte, conf.GODIS_IO_BUF),
+		reply: data.ListCreate(data.ListType{EqualFunc: data.GStrEqual}),
+	}
 }
 
 func resetClient(client *GodisClient) {
@@ -46,9 +44,12 @@ func resetClient(client *GodisClient) {
 
 func (client *GodisClient) findLineInQuery() (int, error) {
 	// "\r\n" 不存在这个字符串时返回 -1
-	index := strings.Index(string(client.queryBuf[:client.queryLen]), "\r\n")
 	/*
-	当index < 0 时表示不存在分隔符
+	已经确定是inline了 为啥还要寻找 \r\n
+	*/
+	index := strings.Index(string(client.queryBuf[ : client.queryLen]), "\r\n")
+	/*
+	当index < 0 时表示不存在 \r\n
 	*/
 	if index < 0 && client.queryLen > conf.GODIS_MAX_INLINE {
 		return index, errors.New("too big inline cmd")
@@ -57,24 +58,26 @@ func (client *GodisClient) findLineInQuery() (int, error) {
 }
 
 func (client *GodisClient) getNumInQuery(s, e int) (int, error) {
-	num, err := strconv.Atoi(string(client.queryBuf[s:e]))
+	num, err := strconv.Atoi(string(client.queryBuf[s : e])) // 将字符串转数字
 	client.queryBuf = client.queryBuf[e+2 : ]
 	client.queryLen -= e + 2
 	return num, err
 }
 
 func handleInlineBuf(client *GodisClient) (bool, error) {
-	// 去querybuffer中寻找分隔符，进行参数的分离
-	// index表示一条命令的初始位置
-	index, err := client.findLineInQuery()
-	// 一个block都不存在
+	index := strings.Index(string(client.queryBuf[ : client.queryLen]), "\r\n")
 	if index < 0 {
-		return false, err
-	}
+		if client.queryLen > conf.GODIS_MAX_INLINE {
+		return false, errors.New("too big inline cmd")
+		} else {
+			return false, errors.New("unknown error")
+		}
+	} 
 	// 分离命令的名字、参数
-	subs := strings.Split(string(client.queryBuf[:index]), " ")
-	client.queryBuf = client.queryBuf[index+2 : ] 
-	client.queryLen -= index + 2
+	subs := strings.Split(string(client.queryBuf[ : index]), " ")
+	client.queryBuf = client.queryBuf[index + 2 : ] // index : \r index + 1 : \n
+	client.queryLen -= index + 2 // 清除缓存区
+	// 参数也要用object存吗
 	client.args = make([]*data.Gobj, len(subs))
 	for i, v := range subs {
 		client.args[i] = data.CreateObject(conf.GSTR, v)
@@ -82,14 +85,24 @@ func handleInlineBuf(client *GodisClient) (bool, error) {
 	return true, nil
 }
 
+/*
+multibulk 命令的结构体
+*命令的字符串个数\r\n
+$字符串长度\r\n字符串\r\n
+$字符串长度\r\n字符串\r\n ...
+*/
+
 func handleBulkBuf(client *GodisClient) (bool, error) {
-	// read bulk num
+	/*
+	if client.bulkNum = 0 表示对于该命令是第一次处理
+	需要知道这次指令的bulk的数目
+	*/
 	if client.bulkNum == 0 {
 		index, err := client.findLineInQuery()
 		if index < 0 {
 			return false, err
 		}
-
+		// 刚开始处理的bulk 需要得知bulk的数量一共有多少 
 		bnum, err := client.getNumInQuery(1, index)
 		if err != nil {
 			return false, err
@@ -141,12 +154,10 @@ func handleBulkBuf(client *GodisClient) (bool, error) {
 }
 
 func ProcessQueryBuf(client *GodisClient) error {
-	// 处理QueryBuffer的数据 一直进行buffer数据的处理
-	// 未读满？？？？？
-	log.Println("test = ", "ProcessQueryBuf = ", client)
+	// multibuk时，
 	for client.queryLen > 0 {
-		// 完全还没有进行处理过的命令
-		// ? 什么逻辑？？？？？？
+		// 如果 client.cmdTy == conf.COMMAND_UNKNOWN 时，表示刚开始处理该指令
+		// 需要对该指令的类型进行赋值 INLINE or BULK
 		if client.cmdTy == conf.COMMAND_UNKNOWN {
 			if client.queryBuf[0] == '*' {
 				client.cmdTy = conf.COMMAND_BULK
@@ -154,8 +165,7 @@ func ProcessQueryBuf(client *GodisClient) error {
 				client.cmdTy = conf.COMMAND_INLINE
 			}
 		}
-		// trans query -> args
-		// 命令类型有问题
+		// trans query -> args 命令类型有问题
 		var ok bool
 		var err error
 		if client.cmdTy == conf.COMMAND_INLINE {
@@ -260,25 +270,21 @@ func ProcessCommand(c *GodisClient) {
 }
 
 func ReadQueryFromClient(loop *ae.AeLoop, fd int, extra any) {
-	// interface assert 取出interface中存储的 *GodisClient的值
+	// 将interface{}的值断言成GodisClient结构 等价于 client = server.client[fd]
 	client := extra.(*GodisClient)
-	// client.queryBuf 表示server给client准备的查询缓冲区
-	// client.queryLen 表示server端已经使用的缓冲区长度
-	// conf.GODIS_MAX_BULK 表示每条redis指令的最大长度
-	// 缓冲区要留足够放下redis指令的缓冲区
-	// ？》？？ 
+	// 当时用multibulk指令时，当兑取一个新的bulk时，要判断当前缓冲区的剩余空间是否能存下一个bulk
 	if len(client.queryBuf)-client.queryLen < conf.GODIS_MAX_BULK {
 		client.queryBuf = append(client.queryBuf, make([]byte, conf.GODIS_MAX_BULK)...)
 	}
-	// 继续读取数据
-	n, err := net.Read(fd, client.queryBuf[client.queryLen:])
+	// 继续读取指令
+	n, err := net.Read(fd, client.queryBuf[client.queryLen : ])
+	// 读取发生错误，断开与server的连接
 	if err != nil {
 		log.Printf("client %v read err: %v\n", fd, err)
 		freeClient(client)
 		return
 	}
-	// 读取的缓冲区增加
-	// 读取命令
+	// 更新client参数
 	client.queryLen += n
 	log.Printf("read %v bytes from client:%v\n", n, client.fd)
 	log.Printf("ReadQueryFromClient, queryBuf : %v\n", string(client.queryBuf))
