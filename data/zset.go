@@ -68,3 +68,74 @@ func (zs *ZSet) Zscore(member *Gobj) string {
 	}
 	return obj.StrVal()
 }
+
+
+func (zs *ZSet) Zcount(start, end *Gobj) (error, int) {
+	startScore, err := start.ParseFloat()
+	endScore, err := end.ParseFloat()
+	if err != nil {
+		err = errors.New("-ERR:min or max is not a float")
+		return err, 0
+	}
+	number := zs.skiplist.SearchByRangeScore(startScore, endScore)
+	return nil, number
+}
+
+func (zs *ZSet) Zrange(start, end *Gobj) ([]string, error) {
+	// 从object中提取 start end
+	s, err := start.int64Val()
+	if err != nil {
+		return nil, errors.New("ERR value is not an integer or out of range")
+	}
+	e, err := end.int64Val()
+	if err != nil {
+		return nil, errors.New("ERR value is not an integer or out of range")
+	}
+	if s < 0 {
+		s += int64(zs.skiplist.length)
+	}
+	if e < 0 {
+		e += int64(zs.skiplist.length)
+	}
+	if s < 0 {
+		s = 0
+	}
+	if s > e || s > int64(zs.skiplist.length - 1 ) {
+		return nil, errors.New("-ERR: invalid range")
+	}
+	res := make([]string, e-s + 1)
+	sln := zs.skiplist.getElememtByRank(uint64(e - s + 1))
+	for i := 0 ; i < int((e - s)) ; i ++ {
+		res[i] = sln.member
+		i++
+		sln = sln.level[0].forward
+	}
+	return res, nil
+}
+
+/*
+TODO: zrank zrevrank的复用
+处理withscore参数
+*/
+
+func (zs *ZSet) ZRANK(member *Gobj) (uint64, error){
+	// 判断是否存在member
+	valObj := zs.dict.Get(member)
+	if valObj == nil {
+		return 0, errors.New("nil")
+	}
+	return zs.skiplist.GetRank(member.StrVal(), valObj.FloatVal()), nil
+}
+
+/*
+ZREM
+TODO: 多个元素的删除
+*/
+
+func (zs *ZSet) ZREM(member, score *Gobj) (int, error) {
+	if err := zs.skiplist.Delete(member.StrVal(), score.FloatVal()) ; err != nil {
+		return 0, err
+	} else {
+		return 1, nil
+	}
+}

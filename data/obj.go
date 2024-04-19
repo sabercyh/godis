@@ -29,7 +29,7 @@ func CreateObjectFromInt(val int64) *Gobj {
 	}
 }
 
-func (o *Gobj) IntVal() int64 {
+func (o *Gobj) IntVal() (int64) {
 	if o.Type_ != conf.GSTR {
 		return 0
 	}
@@ -37,11 +37,27 @@ func (o *Gobj) IntVal() int64 {
 	return val
 }
 
+func (o *Gobj) int64Val() (int64, error) {
+	if o.Type_ != conf.GSTR {
+		return 0, nil
+	}
+	val, err := strconv.ParseInt(o.Val_.(string), 10, 64)
+	return val, err
+}
+
 func (o *Gobj) StrVal() string {
 	if o.Type_ != conf.GSTR {
 		return ""
 	}
 	return o.Val_.(string)
+}
+
+func (o *Gobj) FloatVal() float64 {
+	if o.Type_ != conf.GSTR {
+		return 0.0
+	}
+	val, _ := strconv.ParseFloat(o.Val_.(string), 64)
+	return val
 }
 
 func (o *Gobj) IncrRefCount() {
