@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"time"
+
 	"github.com/godis/conf"
 	"github.com/godis/data"
 )
@@ -17,19 +18,19 @@ type GodisCommand struct {
 }
 
 func NewGodisCommand(name string, proc CommandProc, arity int) *GodisCommand {
-	return &GodisCommand {
-		name: name,
-		proc: proc,
+	return &GodisCommand{
+		name:  name,
+		proc:  proc,
 		arity: arity,
 	}
 }
 
-var cmdTable = map[string]*GodisCommand {
-	"set": NewGodisCommand("set", setCommand, 2),
-	"get": NewGodisCommand("get", getCommand, 3),
+var cmdTable = map[string]*GodisCommand{
+	"set":    NewGodisCommand("set", setCommand, 2),
+	"get":    NewGodisCommand("get", getCommand, 3),
 	"expire": NewGodisCommand("expire", expireCommand, 3),
-	"zadd": NewGodisCommand("zadd", zaddCommand, 4),
-	"zcard": NewGodisCommand("zcard", zcardCommand, 2),
+	"zadd":   NewGodisCommand("zadd", zaddCommand, 4),
+	"zcard":  NewGodisCommand("zcard", zcardCommand, 2),
 	"zscore": NewGodisCommand("zscore", zscoreCommand, 3),
 	// ZRANGE key start stop
 	"zrange": NewGodisCommand("zrange", zrangeCommand, 4),
@@ -116,8 +117,8 @@ func zaddCommand(c *GodisClient) {
 		zsObj = data.CreateObject(conf.GZSET, data.NewZset())
 		server.DB.Data.Set(key, zsObj)
 	}
-	zs := zsObj.Val_.(*data.ZSet)	
-	zaddReply := zs.Zadd(c.args[2 : ])
+	zs := zsObj.Val_.(*data.ZSet)
+	zaddReply := zs.Zadd(c.args[2:])
 	if zaddReply.Err != nil {
 		zsObj.DecrRefCount()
 		c.AddReplyStr(zaddReply.Err.Error() + "\r\n")
@@ -144,38 +145,38 @@ func zscoreCommand(c *GodisClient) {
 	zsObj := server.DB.Data.Get(key)
 	if zsObj == nil {
 		c.AddReplyStr("nil" + "\r\n")
-		return 
-	} 
-	if err := zsObj.CheckType(conf.GZSET) ; err != nil {
+		return
+	}
+	if err := zsObj.CheckType(conf.GZSET); err != nil {
 		c.AddReplyStr(err.Error() + "\r\n")
-		return 
+		return
 	}
 	zs := zsObj.Val_.(*data.ZSet)
 	str := zs.Zscore(c.args[2])
 	if str == "" {
 		c.AddReplyStr("nil" + "\r\n")
-		return 
+		return
 	}
 	c.AddReplyStr(str + "\r\n")
 }
 
 func zrangeCommand(c *GodisClient) {
-	key := c.args[1] 
-	zsObj := server.DB.Data.Get(key) 
+	key := c.args[1]
+	zsObj := server.DB.Data.Get(key)
 	if zsObj == nil {
 		c.AddReplyStr("(empty list or set)" + "\r\n")
 		return
 	}
-	if err := zsObj.CheckType(conf.GZSET) ; err != nil {
+	if err := zsObj.CheckType(conf.GZSET); err != nil {
 		c.AddReplyStr(err.Error() + "\r\n")
 	}
 	zs := zsObj.Val_.(*data.ZSet)
 	// 从object中提取 start end
-	if strSlice, err := zs.Zrange(c.args[2], c.args[3]) ; err != nil {
+	if strSlice, err := zs.Zrange(c.args[2], c.args[3]); err != nil {
 		c.AddReplyStr(err.Error() + "\r\n")
 		return
 	} else {
-		for i := 0 ; i < len(strSlice) ; i ++ {
+		for i := 0; i < len(strSlice); i++ {
 			c.AddReplyStr(strSlice[i] + "\r\n")
 		}
 	}
@@ -188,12 +189,12 @@ func zremCommand(c *GodisClient) {
 		c.AddReplyStr("(integer) 0" + "\r\n")
 		return
 	}
-	if err := zsObj.CheckType(conf.GZSET) ; err != nil {
+	if err := zsObj.CheckType(conf.GZSET); err != nil {
 		c.AddReplyStr(err.Error() + "\r\n")
-		return 
+		return
 	}
 	zs := zsObj.Val_.(*data.ZSet)
-	if n, err := zs.ZREM(c.args[2], c.args[3]) ; err != nil {
+	if n, err := zs.ZREM(c.args[2], c.args[3]); err != nil {
 		c.AddReplyStr(err.Error() + "\r\n")
 	} else {
 		c.AddReplyStr("(integer)" + fmt.Sprint(n) + "\r\n")
@@ -207,11 +208,11 @@ func zrankCommand(c *GodisClient) {
 		c.AddReplyStr("(integer) 0" + "\r\n")
 		return
 	}
-	if err := zsObj.CheckType(conf.GZSET) ; err != nil {
+	if err := zsObj.CheckType(conf.GZSET); err != nil {
 		c.AddReplyStr(err.Error() + "\r\n")
 	}
 	zs := zsObj.Val_.(*data.ZSet)
-	if rank, err := zs.ZRANK(c.args[2]) ; err != nil {
+	if rank, err := zs.ZRANK(c.args[2]); err != nil {
 		c.AddReplyStr(err.Error() + "\r\n")
 	} else {
 		c.AddReplyStr("(integer)" + fmt.Sprint(rank) + "\r\n")
@@ -225,11 +226,11 @@ func zcountCommand(c *GodisClient) {
 		c.AddReplyStr("(integer) 0" + "\r\n")
 		return
 	}
-	if err := zsObj.CheckType(conf.GZSET) ; err != nil {
+	if err := zsObj.CheckType(conf.GZSET); err != nil {
 		c.AddReplyStr(err.Error() + "\r\n")
-		return 
+		return
 	}
-	if err, number := zsObj.Val_.(*data.ZSet).Zcount(c.args[2], c.args[3]) ; err != nil {
+	if number, err := zsObj.Val_.(*data.ZSet).Zcount(c.args[2], c.args[3]); err != nil {
 		c.AddReplyStr(err.Error() + "\r\n")
 	} else {
 		c.AddReplyStr("(integer) " + fmt.Sprint(number) + "\r\n")

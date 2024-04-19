@@ -1,9 +1,10 @@
 package data
 
 import (
-	"errors"
 	"math"
 	"math/rand"
+
+	"github.com/godis/errs"
 )
 
 const (
@@ -11,12 +12,6 @@ const (
 	FORCE_RATIO  int64 = 2
 	GROW_RATIO   int64 = 2
 	DEFAULT_STEP int   = 1
-)
-
-var (
-	EP_ERR = errors.New("expand error")
-	EX_ERR = errors.New("key exists error")
-	NK_ERR = errors.New("key doesnt exist error")
 )
 
 type Entry struct {
@@ -102,7 +97,7 @@ func nextPower(size int64) int64 {
 func (dict *Dict) expand(size int64) error {
 	sz := nextPower(size)
 	if dict.isRehashing() || (dict.hts[0] != nil && dict.hts[0].size >= sz) {
-		return EP_ERR
+		return errs.ExpandError
 	}
 	var ht htable
 	ht.size = sz
@@ -189,7 +184,7 @@ func (dict *Dict) AddRaw(key *Gobj) *Entry {
 func (dict *Dict) Add(key, val *Gobj) error {
 	entry := dict.AddRaw(key)
 	if entry == nil {
-		return EX_ERR
+		return errs.KeyExistsError
 	}
 	entry.Val = val
 	val.IncrRefCount()
@@ -213,7 +208,7 @@ func freeEntry(e *Entry) {
 
 func (dict *Dict) Delete(key *Gobj) error {
 	if dict.hts[0] == nil {
-		return NK_ERR
+		return errs.KeyNotExistError
 	}
 	if dict.isRehashing() {
 		dict.rehashStep()
@@ -242,7 +237,7 @@ func (dict *Dict) Delete(key *Gobj) error {
 		}
 	}
 	// key doesnt exist
-	return NK_ERR
+	return errs.KeyNotExistError
 }
 
 func (dict *Dict) Find(key *Gobj) *Entry {

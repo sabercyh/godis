@@ -1,10 +1,11 @@
 package data
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"math/rand"
+
+	"github.com/godis/errs"
 )
 
 const SkiplistMaxlevel int = 32 // 跳表的最大长度
@@ -51,13 +52,13 @@ func NewSkipListNode(level int, score float64, member string) *skipListNode {
 func NewSkipListLevel(forward *skipListNode, span uint64) *skipListLevel {
 	return &skipListLevel{
 		forward: forward,
-		span: span,
+		span:    span,
 	}
 }
 
 func InitSkipListLevelSlice(level int) []*skipListLevel {
 	l := make([]*skipListLevel, level)
-	for i := 0 ; i < level ; i ++ {
+	for i := 0; i < level; i++ {
 		l[i] = NewSkipListLevel(nil, 0)
 	}
 	return l
@@ -65,19 +66,19 @@ func InitSkipListLevelSlice(level int) []*skipListLevel {
 
 func (sl *SkipList) Insert(score float64, member string) {
 	update := make([]*skipListNode, SkiplistMaxlevel) // 要插入的节点在skiplist中的backend
-	rank := make([]uint64, SkiplistMaxlevel) // 记录要插入的节点的backend距离head节点的距离（中间间隔节点的个数）
+	rank := make([]uint64, SkiplistMaxlevel)          // 记录要插入的节点的backend距离head节点的距离（中间间隔节点的个数）
 
 	x := sl.head
-	for i := sl.level - 1 ; i >= 0 ; i -- {
+	for i := sl.level - 1; i >= 0; i-- {
 		/*
-		span记录的是每个level当前节点距离他的frontend的个数，
-		所以为了计算新插入节点的span值，需要rank[i]
-		A----------B-----------C
-		B是新插入的节点
-		AC之间的距离已经知道 即A节点对应的span值
-		AB之间的距离可以用rank[i] - rank[0]来获得
-		这样得到了BC之间的距离 即B节点的span值
-		对于遍历一个节点的每一个level之前，rank[level]代表的是这个节点到头节点的距离，就是上一次循环结束后的结果
+			span记录的是每个level当前节点距离他的frontend的个数，
+			所以为了计算新插入节点的span值，需要rank[i]
+			A----------B-----------C
+			B是新插入的节点
+			AC之间的距离已经知道 即A节点对应的span值
+			AB之间的距离可以用rank[i] - rank[0]来获得
+			这样得到了BC之间的距离 即B节点的span值
+			对于遍历一个节点的每一个level之前，rank[level]代表的是这个节点到头节点的距离，就是上一次循环结束后的结果
 		*/
 		if i == sl.level-1 {
 			rank[i] = 0
@@ -86,20 +87,20 @@ func (sl *SkipList) Insert(score float64, member string) {
 		}
 		// find backend
 		for x.level[i].forward != nil && (x.level[i].forward.score < score || (x.level[i].forward.score == score && x.level[i].forward.member < member)) {
-			rank[i] += x.level[i].span 
+			rank[i] += x.level[i].span
 			x = x.level[i].forward
 		}
 		// record backend
-		update[i] = x 
+		update[i] = x
 	}
 
 	level := randomLevel()
-	
+
 	/*
-	如果新的节点高于当前skiplist的高度，
-	需要进行扩充高度
-	rank[i] = 0
-	设置它的backend为sl.head
+		如果新的节点高于当前skiplist的高度，
+		需要进行扩充高度
+		rank[i] = 0
+		设置它的backend为sl.head
 	*/
 	if level > sl.level {
 		for i := sl.level; i < level; i++ {
@@ -118,7 +119,7 @@ func (sl *SkipList) Insert(score float64, member string) {
 			span:    update[i].level[i].span - (rank[0] - rank[i]),
 		}
 		update[i].level[i].forward = node
-	}                                                                            
+	}
 
 	// Adjust spans for levels above the new node's level.
 	for i := level; i < sl.level; i++ {
@@ -223,7 +224,7 @@ func (sl *SkipList) Delete(member string, score float64) error {
 		sl.length--
 		return nil
 	}
-	return errors.New("delete fail")
+	return errs.SkipListDeleteNodeError
 }
 
 // DeleteNode 删除skiplist中的节点
@@ -302,14 +303,14 @@ func (sl *SkipList) SearchByRangeScore(start, end float64) int {
 	n := 0
 	endNode := sl.SearchByScore(start)
 	for startNode != endNode {
-		n++ 
+		n++
 		startNode = startNode.level[0].forward
 	}
 	return n
 }
 
 func (sl *SkipList) SearchByScore(score float64) *skipListNode {
-	head := sl.head 
+	head := sl.head
 	for head.level[0].forward != nil && head.level[0].forward.score < score {
 		head = head.level[0].forward
 	}
@@ -319,14 +320,14 @@ func (sl *SkipList) SearchByScore(score float64) *skipListNode {
 func (sl *SkipList) GetRank(member string, score float64) uint64 {
 	head := sl.head
 	var rank uint64 = 0
-	for i := sl.level - 1 ; i >= 0 ; i -- {
+	for i := sl.level - 1; i >= 0; i-- {
 		for head.level[i].forward != nil && (head.level[i].forward.score < score || (head.level[i].forward.score == score || head.level[i].forward.member < member)) {
 			rank += head.level[0].span
 			head = head.level[i].forward
 		}
-		/* 
-		判断这个节点是不是要找的节点
-		这个节点可能为空
+		/*
+			判断这个节点是不是要找的节点
+			这个节点可能为空
 		*/
 		if head != nil && head.level[i].forward.member == member && head.level[i].forward.score == score {
 			return rank
@@ -336,18 +337,19 @@ func (sl *SkipList) GetRank(member string, score float64) uint64 {
 }
 
 func (sl *SkipList) getElememtByRank(rank uint64) *skipListNode {
-	return sl.getElememtByRankFromNode(sl.head, rank, sl.level - 1)
+	return sl.getElememtByRankFromNode(sl.head, rank, sl.level-1)
 }
+
 /*
 与知道某个节点的rank区分开
 没有加从head到第一个节点的span，rank从0开始
 */
 func (sl *SkipList) getElememtByRankFromNode(start *skipListNode, rank uint64, level int) *skipListNode {
 	head := start
-	var traversal uint64 = 0;
-	for i := level ; i >= 0 ; i -- {
+	var traversal uint64 = 0
+	for i := level; i >= 0; i-- {
 		// 省略判断
-		for head.level[i].forward != nil && (traversal + head.level[i].span <= rank) {
+		for head.level[i].forward != nil && (traversal+head.level[i].span <= rank) {
 			traversal += head.level[i].span
 			head = head.level[i].forward
 		}

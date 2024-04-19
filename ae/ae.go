@@ -3,6 +3,8 @@ package ae
 import (
 	"log"
 	"time"
+
+	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 )
 
@@ -50,6 +52,7 @@ type AeLoop struct {
 	fileEventFd     int
 	timeEventNextId int
 	stop            bool
+	logger          *logrus.Logger
 }
 
 // AE事件到epoll常量的映射关系
@@ -115,14 +118,14 @@ func (loop *AeLoop) AddFileEvent(fd int, mask FeType, proc FileProc, extra any) 
 
 	// Add the new file event to the AeLoop's FileEvents map
 	loop.FileEvents[getFeKey(fd, mask)] = &AeFileEvent{
-		fd: fd,
-		mask: mask,
-		proc: proc,
+		fd:    fd,
+		mask:  mask,
+		proc:  proc,
 		extra: extra,
 	}
 
 	// Log the operation of adding a file event
-	log.Printf("ae add file event fd:%v, mask:%v\n", fd, mask)
+	loop.logger.Printf("ae add file event fd:%v, mask:%v\n", fd, mask)
 }
 
 func (loop *AeLoop) RemoveFileEvent(fd int, mask FeType) {
@@ -135,11 +138,11 @@ func (loop *AeLoop) RemoveFileEvent(fd int, mask FeType) {
 	}
 	err := unix.EpollCtl(loop.fileEventFd, op, fd, &unix.EpollEvent{Fd: int32(fd), Events: uint32(ev)})
 	if err != nil {
-		log.Printf("epoll del err: %v\n", err)
+		loop.logger.Printf("epoll del err: %v\n", err)
 	}
 	// ae ctl
 	loop.FileEvents[getFeKey(fd, mask)] = nil
-	log.Printf("ae remove file event fd:%v, mask:%v\n", fd, mask)
+	loop.logger.Printf("ae remove file event fd:%v, mask:%v\n", fd, mask)
 }
 
 func GetMsTime() int64 {
@@ -179,7 +182,7 @@ func (loop *AeLoop) RemoveTimeEvent(id int) {
 	}
 }
 
-func AeLoopCreate() (*AeLoop, error) {
+func AeLoopCreate(logger *logrus.Logger) (*AeLoop, error) {
 	epollFd, err := unix.EpollCreate1(0)
 	if err != nil {
 		return nil, err
@@ -189,6 +192,7 @@ func AeLoopCreate() (*AeLoop, error) {
 		fileEventFd:     epollFd,
 		timeEventNextId: 1,
 		stop:            false,
+		logger:          logger,
 	}, nil
 }
 
@@ -215,20 +219,20 @@ func (loop *AeLoop) AeWait() (tes []*AeTimeEvent, fes []*AeFileEvent) {
 	var events [128]unix.EpollEvent
 	n, err := unix.EpollWait(loop.fileEventFd, events[:], int(timeout))
 	if err != nil {
-		log.Printf("epoll wait warnning: %v\n", err)
+		loop.logger.Printf("epoll wait warnning: %v\n", err)
 	}
 	if n > 0 {
-		log.Printf("ae get %v epoll events\n", n)
+		loop.logger.Printf("ae get %v epoll events\n", n)
 	}
 	// collect file events register file events
 	for i := 0; i < n; i++ {
-		if events[i].Events & unix.EPOLLIN != 0 {
+		if events[i].Events&unix.EPOLLIN != 0 {
 			fe := loop.FileEvents[getFeKey(int(events[i].Fd), AE_READABLE)]
 			if fe != nil {
 				fes = append(fes, fe)
 			}
 		}
-		if events[i].Events & unix.EPOLLOUT != 0 {
+		if events[i].Events&unix.EPOLLOUT != 0 {
 			fe := loop.FileEvents[getFeKey(int(events[i].Fd), AE_WRITABLE)]
 			if fe != nil {
 				fes = append(fes, fe)
@@ -264,7 +268,7 @@ func (loop *AeLoop) AeProcess(tes []*AeTimeEvent, fes []*AeFileEvent) {
 	}
 	// 遍历FileEvents
 	if len(fes) > 0 {
-		log.Println("ae is processing file events")
+		loop.logger.Println("ae is processing file events")
 		for _, fe := range fes {
 			fe.proc(loop, fe.fd, fe.extra)
 		}

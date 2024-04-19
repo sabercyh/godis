@@ -1,10 +1,11 @@
 package data
 
 import (
-	"github.com/godis/conf"
-	"strconv"
 	"hash/fnv"
-	"errors"
+	"strconv"
+
+	"github.com/godis/conf"
+	"github.com/godis/errs"
 )
 
 type Gobj struct {
@@ -29,7 +30,7 @@ func CreateObjectFromInt(val int64) *Gobj {
 	}
 }
 
-func (o *Gobj) IntVal() (int64) {
+func (o *Gobj) IntVal() int64 {
 	if o.Type_ != conf.GSTR {
 		return 0
 	}
@@ -77,20 +78,20 @@ func (o *Gobj) ParseFloat() (float64, error) {
 	case float64:
 		return v, nil
 	case string:
-		if parsedValue, err := strconv.ParseFloat(v, 64) ; err != nil {
+		if parsedValue, err := strconv.ParseFloat(v, 64); err != nil {
 			return 0.0, err
 		} else {
 			return parsedValue, nil
 		}
 	}
-	return 0.0, errors.New("转换浮点数发生未知错误")
+	return 0.0, errs.TypeConvertError
 }
 
 func (o *Gobj) CheckType(t conf.Gtype) error {
 	if o.Type_ == t {
 		return nil
 	}
-	return errors.New("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value")
+	return errs.TypeCheckError
 }
 
 // 计算两个Godis Object的类型是否相等
@@ -110,4 +111,3 @@ func GStrHash(key *Gobj) int64 {
 	hash.Write([]byte(key.StrVal()))
 	return int64(hash.Sum64())
 }
-

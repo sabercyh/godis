@@ -1,20 +1,21 @@
 package server
 
 import (
-	"errors"
-	"log"
 	"strconv"
 	"strings"
+
 	"github.com/godis/ae"
 	"github.com/godis/conf"
 	"github.com/godis/data"
 	"github.com/godis/db"
+	"github.com/godis/errs"
 	"github.com/godis/net"
+	"github.com/sirupsen/logrus"
 )
 
 type GodisClient struct {
-	fd       int 
-	db       *db.GodisDB 
+	fd       int
+	db       *db.GodisDB
 	args     []*data.Gobj
 	reply    *data.List
 	sentLen  int
@@ -23,15 +24,19 @@ type GodisClient struct {
 	cmdTy    conf.CmdType
 	bulkNum  int
 	bulkLen  int
+	logEntry *logrus.Entry
 }
 
 // 建立连接成功创建client实例
 func InitGodisClientInstance(fd int, server *GodisServer) *GodisClient {
 	return &GodisClient{
-		fd: fd,
-		db: server.DB,
+		fd:       fd,
+		db:       server.DB,
 		queryBuf: make([]byte, conf.GODIS_IO_BUF),
-		reply: data.ListCreate(data.ListType{EqualFunc: data.GStrEqual}),
+		reply:    data.ListCreate(data.ListType{EqualFunc: data.GStrEqual}),
+		logEntry: server.logger.WithFields(logrus.Fields{
+			"clientFD": fd,
+		}),
 	}
 }
 
@@ -45,38 +50,38 @@ func resetClient(client *GodisClient) {
 func (client *GodisClient) findLineInQuery() (int, error) {
 	// "\r\n" 不存在这个字符串时返回 -1
 	/*
-	已经确定是inline了 为啥还要寻找 \r\n
+		已经确定是inline了 为啥还要寻找 \r\n
 	*/
-	index := strings.Index(string(client.queryBuf[ : client.queryLen]), "\r\n")
+	index := strings.Index(string(client.queryBuf[:client.queryLen]), "\r\n")
 	/*
-	当index < 0 时表示不存在 \r\n
+		当index < 0 时表示不存在 \r\n
 	*/
 	if index < 0 && client.queryLen > conf.GODIS_MAX_INLINE {
-		return index, errors.New("too big inline cmd")
+		return index, errs.OutOfLimitError
 	}
 	return index, nil
 }
 
 func (client *GodisClient) getNumInQuery(s, e int) (int, error) {
-	num, err := strconv.Atoi(string(client.queryBuf[s : e])) // 将字符串转数字
-	client.queryBuf = client.queryBuf[e+2 : ]
+	num, err := strconv.Atoi(string(client.queryBuf[s:e])) // 将字符串转数字
+	client.queryBuf = client.queryBuf[e+2:]
 	client.queryLen -= e + 2
 	return num, err
 }
 
 func handleInlineBuf(client *GodisClient) (bool, error) {
-	index := strings.Index(string(client.queryBuf[ : client.queryLen]), "\r\n")
+	index := strings.Index(string(client.queryBuf[:client.queryLen]), "\r\n")
 	if index < 0 {
 		if client.queryLen > conf.GODIS_MAX_INLINE {
-		return false, errors.New("too big inline cmd")
+			return false, errs.OutOfLimitError
 		} else {
-			return false, errors.New("unknown error")
+			return false, errs.CustomError
 		}
-	} 
+	}
 	// 分离命令的名字、参数
-	subs := strings.Split(string(client.queryBuf[ : index]), " ")
-	client.queryBuf = client.queryBuf[index + 2 : ] // index : \r index + 1 : \n
-	client.queryLen -= index + 2 // 清除缓存区
+	subs := strings.Split(string(client.queryBuf[:index]), " ")
+	client.queryBuf = client.queryBuf[index+2:] // index : \r index + 1 : \n
+	client.queryLen -= index + 2                // 清除缓存区
 	// 参数也要用object存吗
 	client.args = make([]*data.Gobj, len(subs))
 	for i, v := range subs {
@@ -94,15 +99,15 @@ $字符串长度\r\n字符串\r\n ...
 
 func handleBulkBuf(client *GodisClient) (bool, error) {
 	/*
-	if client.bulkNum = 0 表示对于该命令是第一次处理
-	需要知道这次指令的bulk的数目
+		if client.bulkNum = 0 表示对于该命令是第一次处理
+		需要知道这次指令的bulk的数目
 	*/
 	if client.bulkNum == 0 {
 		index, err := client.findLineInQuery()
 		if index < 0 {
 			return false, err
 		}
-		// 刚开始处理的bulk 需要得知bulk的数量一共有多少 
+		// 刚开始处理的bulk 需要得知bulk的数量一共有多少
 		bnum, err := client.getNumInQuery(1, index)
 		if err != nil {
 			return false, err
@@ -123,7 +128,7 @@ func handleBulkBuf(client *GodisClient) (bool, error) {
 			}
 
 			if client.queryBuf[0] != '$' {
-				return false, errors.New("expect $ for bulk length")
+				return false, errs.WrongCmdError
 			}
 
 			blen, err := client.getNumInQuery(1, index)
@@ -131,7 +136,7 @@ func handleBulkBuf(client *GodisClient) (bool, error) {
 				return false, err
 			}
 			if blen > conf.GODIS_MAX_BULK {
-				return false, errors.New("too big bulk")
+				return false, errs.OutOfLimitError
 			}
 			client.bulkLen = blen
 		}
@@ -141,7 +146,7 @@ func handleBulkBuf(client *GodisClient) (bool, error) {
 		}
 		index := client.bulkLen
 		if client.queryBuf[index] != '\r' || client.queryBuf[index+1] != '\n' {
-			return false, errors.New("expect CRLF for bulk end")
+			return false, errs.WrongCmdError
 		}
 		client.args[len(client.args)-client.bulkNum] = data.CreateObject(conf.GSTR, string(client.queryBuf[:index]))
 		client.queryBuf = client.queryBuf[index+2:]
@@ -173,7 +178,7 @@ func ProcessQueryBuf(client *GodisClient) error {
 		} else if client.cmdTy == conf.COMMAND_BULK {
 			ok, err = handleBulkBuf(client)
 		} else {
-			return errors.New("unknow Godis Command Type")
+			return errs.WrongCmdError
 		}
 		// buffer不完整 命令输入参数不够？？
 		if err != nil {
@@ -207,7 +212,7 @@ func lookupCommand(cmdStr string) *GodisCommand {
 
 func SendReplyToClient(loop *ae.AeLoop, fd int, extra any) {
 	client := extra.(*GodisClient)
-	log.Printf("SendReplyToClient, reply len:%v\n", client.reply.Length())
+	client.logEntry.Printf("SendReplyToClient, reply len:%v\n", client.reply.Length())
 	for client.reply.Length() > 0 {
 		rep := client.reply.First()
 		buf := []byte(rep.Val.StrVal())
@@ -215,12 +220,12 @@ func SendReplyToClient(loop *ae.AeLoop, fd int, extra any) {
 		if client.sentLen < bufLen {
 			n, err := net.Write(fd, buf[client.sentLen:])
 			if err != nil {
-				log.Printf("send reply err: %v\n", err)
+				client.logEntry.Printf("send reply err: %v\n", err)
 				freeClient(client)
 				return
 			}
 			client.sentLen += n
-			log.Printf("send %v bytes to client:%v\n", n, client.fd)
+			client.logEntry.Printf("send %v bytes to client:%v\n", n, client.fd)
 			if client.sentLen == bufLen {
 				client.reply.DelNode(rep)
 				rep.Val.DecrRefCount()
@@ -250,7 +255,7 @@ func (client *GodisClient) AddReplyStr(str string) {
 
 func ProcessCommand(c *GodisClient) {
 	cmdStr := c.args[0].StrVal()
-	log.Printf("process command: %v\n", cmdStr)
+	c.logEntry.Printf("process command: %v\n", cmdStr)
 	if cmdStr == "quit" {
 		freeClient(c)
 		return
@@ -277,20 +282,20 @@ func ReadQueryFromClient(loop *ae.AeLoop, fd int, extra any) {
 		client.queryBuf = append(client.queryBuf, make([]byte, conf.GODIS_MAX_BULK)...)
 	}
 	// 继续读取指令
-	n, err := net.Read(fd, client.queryBuf[client.queryLen : ])
+	n, err := net.Read(fd, client.queryBuf[client.queryLen:])
 	// 读取发生错误，断开与server的连接
 	if err != nil {
-		log.Printf("client %v read err: %v\n", fd, err)
+		client.logEntry.Printf("client %v read err: %v\n", fd, err)
 		freeClient(client)
 		return
 	}
 	// 更新client参数
 	client.queryLen += n
-	log.Printf("read %v bytes from client:%v\n", n, client.fd)
-	log.Printf("ReadQueryFromClient, queryBuf : %v\n", string(client.queryBuf))
+	client.logEntry.Printf("read %v bytes from client:%v\n", n, client.fd)
+	client.logEntry.Printf("ReadQueryFromClient, queryBuf : %v\n", string(client.queryBuf))
 	err = ProcessQueryBuf(client)
 	if err != nil {
-		log.Printf("process query buf err: %v\n", err)
+		client.logEntry.Printf("process query buf err: %v\n", err)
 		freeClient(client)
 		return
 	}
