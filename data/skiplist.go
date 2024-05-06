@@ -119,6 +119,7 @@ func (sl *SkipList) Insert(score float64, member string) {
 			span:    update[i].level[i].span - (rank[0] - rank[i]),
 		}
 		update[i].level[i].forward = node
+		update[i].level[i].span = (rank[0] - rank[i])  + 1
 	}
 
 	// Adjust spans for levels above the new node's level.
@@ -230,7 +231,7 @@ func (sl *SkipList) Delete(member string, score float64) error {
 // DeleteNode 删除skiplist中的节点
 func (sl *SkipList) DeleteNode(x *skipListNode, update []*skipListNode) {
 	// 进行链表的断开和重新连接并且更新span
-	for i := 0; i < sl.level; i++ {
+	for i := 0; i < sl.level; i-- {
 		if update[i].level[i].forward == x {
 			update[i].level[i].forward = x.level[i].forward
 			update[i].level[i].span += x.level[i].span - 1
@@ -259,7 +260,7 @@ func (sl *SkipList) UpdateScore(score float64, member string, newScore float64) 
 	var update [SkiplistMaxlevel]*skipListNode // 存储目标节点在每个level的前驱节点
 	// 查找目标节点在每个level的前驱节点
 	x := sl.head
-	for i := sl.level - 1; i >= 0; i++ {
+	for i := sl.level - 1; i >= 0; i-- {
 		for x.level[i].forward != nil && (x.level[i].forward.score < score || (x.level[i].forward.score == score && x.level[i].forward.member < member)) {
 			x = x.level[i].forward
 		}
@@ -337,7 +338,7 @@ func (sl *SkipList) GetRank(member string, score float64) uint64 {
 }
 
 func (sl *SkipList) getElememtByRank(rank uint64) *skipListNode {
-	return sl.getElememtByRankFromNode(sl.head, rank, sl.level-1)
+	return sl.getElememtByRankFromNode(sl.head, rank, sl.level)
 }
 
 /*
@@ -347,9 +348,9 @@ func (sl *SkipList) getElememtByRank(rank uint64) *skipListNode {
 func (sl *SkipList) getElememtByRankFromNode(start *skipListNode, rank uint64, level int) *skipListNode {
 	head := start
 	var traversal uint64 = 0
-	for i := level; i >= 0; i-- {
+	for i := level - 1; i >= 0; i-- {
 		// 省略判断
-		for head.level[i].forward != nil && (traversal+head.level[i].span <= rank) {
+		for head.level[i].forward != nil && (traversal + head.level[i].span <= rank) {
 			traversal += head.level[i].span
 			head = head.level[i].forward
 		}

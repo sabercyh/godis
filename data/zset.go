@@ -105,7 +105,7 @@ func (zs *ZSet) Zrange(start, end *Gobj) ([]string, error) {
 		return nil, errs.OutOfRangeError
 	}
 	res := make([]string, e-s+1)
-	sln := zs.skiplist.getElememtByRank(uint64(e - s + 1))
+	sln := zs.skiplist.getElememtByRank(uint64(s) + 1)
 	for i := 0; i < int((e - s)); i++ {
 		res[i] = sln.member
 		i++

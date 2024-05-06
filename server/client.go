@@ -262,7 +262,7 @@ func ProcessCommand(c *GodisClient) {
 	}
 	cmd := lookupCommand(cmdStr)
 	if cmd == nil {
-		c.AddReplyStr("-ERR: unknow command")
+		c.AddReplyStr("-ERR: unknow command" + "\r\n")
 		resetClient(c)
 		return
 	} else if cmd.arity != len(c.args) {
