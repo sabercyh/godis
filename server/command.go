@@ -26,8 +26,8 @@ func NewGodisCommand(name string, proc CommandProc, arity int) *GodisCommand {
 }
 
 var cmdTable = map[string]*GodisCommand{
-	"set":    NewGodisCommand("set", setCommand, 2),
-	"get":    NewGodisCommand("get", getCommand, 3),
+	"set":    NewGodisCommand("set", setCommand, 3),
+	"get":    NewGodisCommand("get", getCommand, 2),
 	"expire": NewGodisCommand("expire", expireCommand, 3),
 	"zadd":   NewGodisCommand("zadd", zaddCommand, 4),
 	"zcard":  NewGodisCommand("zcard", zcardCommand, 2),
