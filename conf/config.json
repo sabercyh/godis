@@ -1,0 +1,7 @@
+{
+    "port": 6767,
+    "appendonly":true,
+    "dir":"./persistence/",
+    "appendfilename":"appendonly.aof",
+    "appendfsync":"always"
+}

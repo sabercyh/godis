@@ -4,9 +4,11 @@ import (
 	"time"
 
 	"github.com/godis/ae"
+	"github.com/godis/conf"
 	"github.com/godis/data"
 	"github.com/godis/db"
 	"github.com/godis/net"
+	"github.com/godis/persistence"
 	"github.com/sirupsen/logrus"
 )
 
@@ -17,6 +19,7 @@ type GodisServer struct {
 	clients map[int]*GodisClient
 	AeLoop  *ae.AeLoop
 	logger  *logrus.Logger
+	aof     *persistence.AOF
 }
 
 var server *GodisServer // 定义server全局变量
@@ -55,16 +58,17 @@ func ServerCron(loop *ae.AeLoop, id int, extra any) {
 	}
 }
 
-func InitGodisServerInstance(port int, logger *logrus.Logger) (*GodisServer, error) {
+func InitGodisServerInstance(config *conf.Config, logger *logrus.Logger) (*GodisServer, error) {
 	// 创建redis服务器实例
 	server = &GodisServer{
-		port:    port,
+		port:    config.Port,
 		clients: make(map[int]*GodisClient),
 		DB: &db.GodisDB{
 			Data:   data.DictCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}),
 			Expire: data.DictCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}),
 		},
 		logger: logger,
+		aof:    persistence.InitAOF(config, logger),
 	}
 	// 创建AE事件循环 调用epoll_create 监听系统IO
 	var err error

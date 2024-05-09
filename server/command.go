@@ -12,34 +12,36 @@ type CommandProc func(c *GodisClient)
 
 // do not support bulk command
 type GodisCommand struct {
-	name  string
-	proc  CommandProc
-	arity int
+	name     string
+	proc     CommandProc
+	arity    int
+	isModify bool //是否为修改命令，若是查询命令则不需要持久化
 }
 
-func NewGodisCommand(name string, proc CommandProc, arity int) *GodisCommand {
+func NewGodisCommand(name string, proc CommandProc, arity int, isModify bool) *GodisCommand {
 	return &GodisCommand{
-		name:  name,
-		proc:  proc,
-		arity: arity,
+		name:     name,
+		proc:     proc,
+		arity:    arity,
+		isModify: isModify,
 	}
 }
 
 var cmdTable = map[string]*GodisCommand{
-	"set":    NewGodisCommand("set", setCommand, 3),
-	"get":    NewGodisCommand("get", getCommand, 2),
-	"expire": NewGodisCommand("expire", expireCommand, 3),
-	"zadd":   NewGodisCommand("zadd", zaddCommand, 4),
-	"zcard":  NewGodisCommand("zcard", zcardCommand, 2),
-	"zscore": NewGodisCommand("zscore", zscoreCommand, 3),
+	"set":    NewGodisCommand("set", setCommand, 3, true),
+	"get":    NewGodisCommand("get", getCommand, 2, false),
+	"expire": NewGodisCommand("expire", expireCommand, 3, true),
+	"zadd":   NewGodisCommand("zadd", zaddCommand, 4, true),
+	"zcard":  NewGodisCommand("zcard", zcardCommand, 2, false),
+	"zscore": NewGodisCommand("zscore", zscoreCommand, 3, false),
 	// ZRANGE key start stop
-	"zrange": NewGodisCommand("zrange", zrangeCommand, 4),
+	"zrange": NewGodisCommand("zrange", zrangeCommand, 4, false),
 	// ZRANK key member
-	"zrank": NewGodisCommand("zrank", zrankCommand, 3),
+	"zrank": NewGodisCommand("zrank", zrankCommand, 3, false),
 	// ZREM key member
-	"zrem": NewGodisCommand("zrem", zremCommand, 3),
+	"zrem": NewGodisCommand("zrem", zremCommand, 3, true),
 	// ZCOUNT key min max
-	"zcount": NewGodisCommand("zcount", zcountCommand, 4),
+	"zcount": NewGodisCommand("zcount", zcountCommand, 4, false),
 }
 
 func expireIfNeeded(key *data.Gobj) {
