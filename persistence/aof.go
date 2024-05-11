@@ -8,6 +8,7 @@ import (
 
 	"github.com/godis/conf"
 	"github.com/godis/data"
+	"github.com/godis/errs"
 	"github.com/godis/util"
 	"github.com/sirupsen/logrus"
 )
@@ -30,10 +31,9 @@ func InitAOF(config *conf.Config, logger *logrus.Logger) *AOF {
 	}
 
 	// 若有AOF文件则直接打开，不存在则创建
-	//Todo，启动时读取是否还需创建？
 	aof.File, err = os.OpenFile(config.Dir+config.AppendFilename, os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
-		logger.Info("not found aof file\r\n")
+		logger.Info("create aof file\r\n")
 		aof.File, _ = os.Create(config.Dir + config.AppendFilename)
 	}
 	aof.Buffer = bufio.NewWriterSize(aof.File, config.AOFBufferSize)
@@ -63,18 +63,20 @@ k1
 $2
 v1
 */
-func (aof *AOF) PersistCommand(args []*data.Gobj) {
+func (aof *AOF) PersistCommand(args []*data.Gobj) error {
 	aof.Command += fmt.Sprintf("*%d\r\n", len(args))
 	for _, v := range args {
 		param := fmt.Sprintf("%v", v.Val_)
 		aof.Command += fmt.Sprintf("$%d\r\n%s\r\n", len(param), param)
 	}
-	aof.Persist()
+	err := aof.Persist()
 	aof.FreeCommand()
+
+	return err
 }
 
 // 额外计算过期绝对时间
-func (aof *AOF) PersistExpireCommand(args []*data.Gobj) {
+func (aof *AOF) PersistExpireCommand(args []*data.Gobj) error {
 	aof.Command += fmt.Sprintf("*%d\r\n", len(args))
 	cmdStr := args[0].StrVal()
 	aof.Command += fmt.Sprintf("$%d\r\n%s\r\n", len(cmdStr), cmdStr)
@@ -82,18 +84,24 @@ func (aof *AOF) PersistExpireCommand(args []*data.Gobj) {
 	expireTime := util.GetTime() + args[2].IntVal()
 	// client.logEntry.Printf("now:%d expire:%d\r\n", util.GetTime(), expireTime)
 	aof.Command += fmt.Sprintf("$%d\r\n%d\r\n", len(strconv.FormatInt(expireTime, 10)), expireTime)
-	aof.Persist()
+	err := aof.Persist()
 	aof.FreeCommand()
+
+	return err
 }
 
-func (aof *AOF) Persist() {
+func (aof *AOF) Persist() error {
+	var err error
 	// 根据刷盘方式写入
 	switch aof.Appendfsync {
 	case 0:
 		aof.Save()
 	case 1:
 		if util.GetTime()-aof.when > 1 {
-			aof.Save()
+			err = aof.Save()
+			if err != nil {
+				return err
+			}
 			aof.when = util.GetTime()
 		} else {
 			aof.Write()
@@ -101,13 +109,28 @@ func (aof *AOF) Persist() {
 	case 2:
 		aof.Write()
 	}
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
-func (aof *AOF) Write() {
-	aof.Buffer.WriteString(aof.Command)
+func (aof *AOF) Write() error {
+	n, err := aof.Buffer.WriteString(aof.Command)
+	if n != len(aof.Command) || err != nil {
+		return errs.AOFBufferWriteError
+	}
+	return nil
 }
 
-func (aof *AOF) Save() {
-	aof.Buffer.WriteString(aof.Command)
-	aof.Buffer.Flush()
+func (aof *AOF) Save() error {
+	n, err := aof.Buffer.WriteString(aof.Command)
+	if n != len(aof.Command) || err != nil {
+		return errs.AOFBufferWriteError
+	}
+	err = aof.Buffer.Flush()
+	if err != nil {
+		return errs.AOFFileSaveError
+	}
+	return nil
 }

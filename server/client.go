@@ -277,9 +277,15 @@ func ProcessCommand(c *GodisClient) {
 	if cmd.isModify && c.aof.AppendOnly {
 		//针对expire命令，需要计算过期的绝对时间
 		if cmd.name == "expire" {
-			c.aof.PersistExpireCommand(c.args)
+			err := c.aof.PersistExpireCommand(c.args)
+			if err != nil {
+				c.logEntry.Printf("AOF persist failed. Command: %v Appendfsync: %d Err: %v\r\n", c.aof.Command, c.aof.Appendfsync, err)
+			}
 		} else {
-			c.aof.PersistCommand(c.args)
+			err := c.aof.PersistCommand(c.args)
+			if err != nil {
+				c.logEntry.Printf("AOF persist failed. Command: %v Appendfsync: %d Err: %v\r\n", c.aof.Command, c.aof.Appendfsync, err)
+			}
 		}
 	}
 	resetClient(c)

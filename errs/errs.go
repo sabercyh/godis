@@ -13,10 +13,12 @@ var CustomError = &GodisError{1, "custom error"}
 
 // 基础errors
 var (
-	TypeConvertError = &GodisError{100, "type convert error"}
-	TypeCheckError   = &GodisError{101, "type check error"}
-	ParamsCheckError = &GodisError{102, "params check error"}
-	OutOfRangeError  = &GodisError{103, "out of range error"}
+	TypeConvertError    = &GodisError{100, "type convert error"}
+	TypeCheckError      = &GodisError{101, "type check error"}
+	ParamsCheckError    = &GodisError{102, "params check error"}
+	OutOfRangeError     = &GodisError{103, "out of range error"}
+	AOFBufferWriteError = &GodisError{104, "aof buffer write error"}
+	AOFFileSaveError    = &GodisError{105, "aof file save error"}
 )
 
 // 数据类型errors
