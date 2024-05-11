@@ -26,7 +26,7 @@ type GodisClient struct {
 	bulkNum  int
 	bulkLen  int
 	logEntry *logrus.Entry
-	aof      *persistence.AOF
+	AOF      *persistence.AOF
 }
 
 // 建立连接成功创建client实例
@@ -39,7 +39,7 @@ func InitGodisClientInstance(fd int, server *GodisServer) *GodisClient {
 		logEntry: server.logger.WithFields(logrus.Fields{
 			"clientFD": fd,
 		}),
-		aof: server.aof,
+		AOF: server.AOF,
 	}
 }
 
@@ -129,11 +129,9 @@ func handleBulkBuf(client *GodisClient) (bool, error) {
 			if index < 0 {
 				return false, err
 			}
-
 			if client.queryBuf[0] != '$' {
 				return false, errs.WrongCmdError
 			}
-
 			blen, err := client.getNumInQuery(1, index)
 			if err != nil || blen == 0 {
 				return false, err
@@ -251,9 +249,11 @@ func (client *GodisClient) AddReply(o *data.Gobj) {
 }
 
 func (client *GodisClient) AddReplyStr(str string) {
-	o := data.CreateObject(conf.GSTR, str)
-	client.AddReply(o)
-	o.DecrRefCount()
+	if client.fd != -1 {
+		o := data.CreateObject(conf.GSTR, str)
+		client.AddReply(o)
+		o.DecrRefCount()
+	}
 }
 
 func ProcessCommand(c *GodisClient) {
@@ -274,17 +274,17 @@ func ProcessCommand(c *GodisClient) {
 		return
 	}
 	cmd.proc(c)
-	if cmd.isModify && c.aof.AppendOnly {
+	if c.fd != -1 && cmd.isModify && c.AOF.AppendOnly {
 		//针对expire命令，需要计算过期的绝对时间
 		if cmd.name == "expire" {
-			err := c.aof.PersistExpireCommand(c.args)
+			err := c.AOF.PersistExpireCommand(c.args)
 			if err != nil {
-				c.logEntry.Printf("AOF persist failed. Command: %v Appendfsync: %d Err: %v\r\n", c.aof.Command, c.aof.Appendfsync, err)
+				c.logEntry.Printf("AOF persist failed. Command: %v Appendfsync: %d Err: %v\r\n", c.AOF.Command, c.AOF.Appendfsync, err)
 			}
 		} else {
-			err := c.aof.PersistCommand(c.args)
+			err := c.AOF.PersistCommand(c.args)
 			if err != nil {
-				c.logEntry.Printf("AOF persist failed. Command: %v Appendfsync: %d Err: %v\r\n", c.aof.Command, c.aof.Appendfsync, err)
+				c.logEntry.Printf("AOF persist failed. Command: %v Appendfsync: %d Err: %v\r\n", c.AOF.Command, c.AOF.Appendfsync, err)
 			}
 		}
 	}
@@ -315,6 +315,31 @@ func ReadQueryFromClient(loop *ae.AeLoop, fd int, extra any) {
 		client.logEntry.Printf("process query buf err: %v\n", err)
 		freeClient(client)
 		return
+	}
+}
+
+func (client *GodisClient) ReadQueryFromAOF() {
+	for {
+		n, err := client.AOF.Buffer.Read(client.queryBuf[client.queryLen : client.queryLen+4096])
+		if err != nil {
+			break
+		}
+		// 更新client参数
+		// fmt.Println(n, client.queryLen, len(client.queryBuf), cap(client.queryBuf))
+		client.queryLen += n
+		client.logEntry.Printf("read %v bytes from client:%v\n", n, client.fd)
+		// client.logEntry.Printf("ReadQueryFromAOF, queryBuf : %v\n", client.queryBuf[:client.queryLen])
+
+		err = ProcessQueryBuf(client)
+		if err != nil {
+			client.logEntry.Printf("process query buf err: %v\n", err)
+			continue
+		}
+
+		if len(client.queryBuf)-client.queryLen < conf.GODIS_MAX_BULK {
+			client.queryBuf = append(client.queryBuf, make([]byte, conf.GODIS_MAX_BULK)...)
+		}
+
 	}
 }
 

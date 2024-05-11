@@ -19,7 +19,7 @@ type GodisServer struct {
 	clients map[int]*GodisClient
 	AeLoop  *ae.AeLoop
 	logger  *logrus.Logger
-	aof     *persistence.AOF
+	AOF     *persistence.AOF
 }
 
 var server *GodisServer // 定义server全局变量
@@ -68,8 +68,15 @@ func InitGodisServerInstance(config *conf.Config, logger *logrus.Logger) (*Godis
 			Expire: data.DictCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}),
 		},
 		logger: logger,
-		aof:    persistence.InitAOF(config, logger),
+		AOF:    persistence.InitAOF(config, logger),
 	}
+
+	// 根据AOF初始化数据
+	if server.AOF.AppendOnly {
+		AOFClient := InitGodisClientInstance(-1, server)
+		AOFClient.ReadQueryFromAOF()
+	}
+
 	// 创建AE事件循环 调用epoll_create 监听系统IO
 	var err error
 	if server.AeLoop, err = ae.AeLoopCreate(logger); err != nil {

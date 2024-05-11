@@ -3,6 +3,6 @@
     "appendonly":true,
     "dir":"./persistence/",
     "appendfilename":"appendonly.aof",
-    "appendfsync":"AOF_FSYNC_NO",
+    "appendfsync":"AOF_FSYNC_ALWAYS",
     "aofbuffersize":4096
 }
