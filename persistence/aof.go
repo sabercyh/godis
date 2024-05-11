@@ -2,25 +2,30 @@ package persistence
 
 import (
 	"bufio"
-	"io"
+	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/godis/conf"
+	"github.com/godis/data"
+	"github.com/godis/util"
 	"github.com/sirupsen/logrus"
 )
 
 type AOF struct {
-	Buffer      *bufio.ReadWriter //有缓冲持久化
-	AppendOnly  bool              //是否启用AOF
-	File        *os.File          //AOF文件句柄
-	Appendfsync bool              //false对应always无缓冲，true对应no有缓冲
-	Command     string            //待持久化的完整命令
+	Buffer      *bufio.Writer //有缓冲持久化
+	AppendOnly  bool          //是否启用AOF
+	File        *os.File      //AOF文件句柄
+	Appendfsync int           //0:AOF_FSYNC_ALWAYS|1:AOF_FSYNC_EVERYSEC|2:AOF_FSYNC_NO
+	Command     string        //待持久化的完整命令
+	when        int64         //上次刷盘时间
 }
 
 func InitAOF(config *conf.Config, logger *logrus.Logger) *AOF {
 	var err error
 	aof := &AOF{
 		AppendOnly: config.AppendOnly,
+		when:       0,
 		Command:    "",
 	}
 
@@ -31,16 +36,15 @@ func InitAOF(config *conf.Config, logger *logrus.Logger) *AOF {
 		logger.Info("not found aof file\r\n")
 		aof.File, _ = os.Create(config.Dir + config.AppendFilename)
 	}
+	aof.Buffer = bufio.NewWriterSize(aof.File, config.AOFBufferSize)
 
-	// 刷盘方式，always表示每条命令都直接写入，no表示每条命令写入缓冲区，由操作系统判断刷盘
-	if config.Appendfsync == "always" {
-		aof.Appendfsync = false
-	} else {
-		aof.Appendfsync = true
-	}
-
-	if aof.Appendfsync {
-		aof.Buffer = bufio.NewReadWriter(bufio.NewReader(aof.File), bufio.NewWriter(aof.File))
+	switch config.Appendfsync {
+	case "AOF_FSYNC_ALWAYS":
+		aof.Appendfsync = 0
+	case "AOF_FSYNC_EVERYSEC":
+		aof.Appendfsync = 1
+	case "AOF_FSYNC_NO":
+		aof.Appendfsync = 2
 	}
 	return aof
 }
@@ -49,12 +53,61 @@ func (aof *AOF) FreeCommand() {
 	aof.Command = ""
 }
 
-func (aof *AOF) Persistent() {
-	// log.Println(aof.Command)
-	// 根据刷盘方式写入
-	if aof.Appendfsync {
-		aof.Buffer.WriteString(aof.Command)
-	} else {
-		io.WriteString(aof.File, aof.Command)
+/*
+以set命令为例，AOF文件中的存储格式为:
+*3		命令参数个数
+$3		第一个参数的字符数
+set		第一个参数
+$2
+k1
+$2
+v1
+*/
+func (aof *AOF) PersistCommand(args []*data.Gobj) {
+	aof.Command += fmt.Sprintf("*%d\r\n", len(args))
+	for _, v := range args {
+		param := fmt.Sprintf("%v", v.Val_)
+		aof.Command += fmt.Sprintf("$%d\r\n%s\r\n", len(param), param)
 	}
+	aof.Persist()
+	aof.FreeCommand()
+}
+
+// 额外计算过期绝对时间
+func (aof *AOF) PersistExpireCommand(args []*data.Gobj) {
+	aof.Command += fmt.Sprintf("*%d\r\n", len(args))
+	cmdStr := args[0].StrVal()
+	aof.Command += fmt.Sprintf("$%d\r\n%s\r\n", len(cmdStr), cmdStr)
+
+	expireTime := util.GetTime() + args[2].IntVal()
+	// client.logEntry.Printf("now:%d expire:%d\r\n", util.GetTime(), expireTime)
+	aof.Command += fmt.Sprintf("$%d\r\n%d\r\n", len(strconv.FormatInt(expireTime, 10)), expireTime)
+	aof.Persist()
+	aof.FreeCommand()
+}
+
+func (aof *AOF) Persist() {
+	// 根据刷盘方式写入
+	switch aof.Appendfsync {
+	case 0:
+		aof.Save()
+	case 1:
+		if util.GetTime()-aof.when > 1 {
+			aof.Save()
+			aof.when = util.GetTime()
+		} else {
+			aof.Write()
+		}
+	case 2:
+		aof.Write()
+	}
+}
+
+func (aof *AOF) Write() {
+	aof.Buffer.WriteString(aof.Command)
+}
+
+func (aof *AOF) Save() {
+	aof.Buffer.WriteString(aof.Command)
+	aof.Buffer.Flush()
 }

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 
@@ -12,7 +11,6 @@ import (
 	"github.com/godis/errs"
 	"github.com/godis/net"
 	"github.com/godis/persistence"
-	"github.com/godis/util"
 	"github.com/sirupsen/logrus"
 )
 
@@ -279,9 +277,9 @@ func ProcessCommand(c *GodisClient) {
 	if cmd.isModify && c.aof.AppendOnly {
 		//针对expire命令，需要计算过期的绝对时间
 		if cmd.name == "expire" {
-			AOFPersistentExpire(c)
+			c.aof.PersistExpireCommand(c.args)
 		} else {
-			AOFPersistent(c)
+			c.aof.PersistCommand(c.args)
 		}
 	}
 	resetClient(c)
@@ -326,40 +324,6 @@ func freeReplyList(client *GodisClient) {
 		client.reply.DelNode(n)
 		n.Val.DecrRefCount()
 	}
-}
-
-/*
-以set命令为例，AOF文件中的存储格式为:
-*3		命令参数个数
-$3		第一个参数的字符数
-set		第一个参数
-$2
-k1
-$2
-v1
-*/
-func AOFPersistent(client *GodisClient) {
-	client.aof.Command += fmt.Sprintf("*%d\r\n", len(client.args))
-	for _, v := range client.args {
-		param := fmt.Sprintf("%v", v.Val_)
-		client.aof.Command += fmt.Sprintf("$%d\r\n%s\r\n", len(param), param)
-	}
-	client.aof.Persistent()
-	client.aof.FreeCommand()
-}
-
-// 额外计算过期绝对时间
-func AOFPersistentExpire(client *GodisClient) {
-	client.aof.Command += fmt.Sprintf("*%d\r\n", len(client.args))
-	cmdStr := client.args[0].StrVal()
-	client.aof.Command += fmt.Sprintf("$%d\r\n%s\r\n", len(cmdStr), cmdStr)
-
-	expireTime := util.GetTime() + client.args[2].IntVal()
-	// client.logEntry.Printf("now:%d expire:%d\r\n", util.GetTime(), expireTime)
-	client.aof.Command += fmt.Sprintf("$%d\r\n%d\r\n", len(strconv.FormatInt(expireTime, 10)), expireTime)
-
-	client.aof.Persistent()
-	client.aof.FreeCommand()
 }
 func freeClient(client *GodisClient) {
 	freeArgs(client)
