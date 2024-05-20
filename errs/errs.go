@@ -33,4 +33,5 @@ var (
 	KeyNotExistError = &GodisError{10002, "key not exists error"}
 	OutOfLimitError  = &GodisError{10003, "cmd length out of limit error"}
 	WrongCmdError    = &GodisError{10004, "wrong cmd error"}
+	DelKeyError      = &GodisError{10005, "del key error"}
 )
