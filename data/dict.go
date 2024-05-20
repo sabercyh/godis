@@ -201,6 +201,13 @@ func (dict *Dict) Set(key, val *Gobj) {
 	val.IncrRefCount()
 }
 
+func (dict *Dict) SetNx(key, val *Gobj) error {
+	if err := dict.Add(key, val); err != nil {
+		return err
+	}
+	return nil
+}
+
 func freeEntry(e *Entry) {
 	e.Key.DecrRefCount()
 	e.Val.DecrRefCount()

@@ -30,7 +30,10 @@ func NewGodisCommand(name string, proc CommandProc, arity int, isModify bool) *G
 
 var cmdTable = map[string]*GodisCommand{
 	"set":    NewGodisCommand("set", setCommand, 3, true),
+	"setnx":  NewGodisCommand("setnx", setnxCommand, 3, true),
 	"get":    NewGodisCommand("get", getCommand, 2, false),
+	"del":    NewGodisCommand("del", delCommand, 2, true),
+	"exists": NewGodisCommand("exists", existsCommand, 2, false),
 	"expire": NewGodisCommand("expire", expireCommand, 3, true),
 	"zadd":   NewGodisCommand("zadd", zaddCommand, 4, true),
 	"zcard":  NewGodisCommand("zcard", zcardCommand, 2, false),
@@ -82,6 +85,17 @@ func getCommand(c *GodisClient) (bool, error) {
 
 }
 
+func delCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	err := server.DB.Data.Delete(key)
+	if err != nil {
+		c.AddReplyStr("$-1\r\n")
+		return false, errs.DelKeyError
+	}
+	c.AddReplyStr("$1\r\n")
+	return true, nil
+
+}
 func setCommand(c *GodisClient) (bool, error) {
 	key := c.args[1]
 	val := c.args[2]
@@ -96,6 +110,34 @@ func setCommand(c *GodisClient) (bool, error) {
 	return true, nil
 }
 
+func setnxCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	val := c.args[2]
+	if val.Type_ != conf.GSTR {
+		// TODO: extract shared.strings
+		c.AddReplyStr("-ERR: wrong type\r\n")
+		return false, errs.TypeCheckError
+	}
+	err := server.DB.Data.SetNx(key, val)
+	if err != nil {
+		c.AddReplyStr("$-1\r\n")
+		return false, errs.KeyExistsError
+	}
+	server.DB.Expire.Delete(key)
+	c.AddReplyStr("+OK\r\n")
+	return true, nil
+}
+func existsCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	val := findKeyRead(key)
+	if val == nil {
+		c.AddReplyStr("$0\r\n")
+		return false, errs.KeyNotExistError
+	}
+	c.AddReplyStr("$1\r\n")
+	return true, nil
+
+}
 func expireCommand(c *GodisClient) (bool, error) {
 	key := c.args[1]
 	val := c.args[2]
