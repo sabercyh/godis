@@ -273,8 +273,11 @@ func ProcessCommand(c *GodisClient) {
 		resetClient(c)
 		return
 	}
-	cmd.proc(c)
-	if c.fd != -1 && cmd.isModify && c.AOF.AppendOnly {
+	ok, err := cmd.proc(c)
+	if c.fd == -1 || !c.AOF.AppendOnly {
+		return
+	}
+	if cmd.isModify && ok && err == nil {
 		//针对expire命令，需要计算过期的绝对时间
 		if cmd.name == "expire" {
 			err := c.AOF.PersistExpireCommand(c.args)
@@ -363,4 +366,10 @@ func freeClient(client *GodisClient) {
 	server.AeLoop.RemoveFileEvent(client.fd, ae.AE_WRITABLE)
 	freeReplyList(client)
 	net.Close(client.fd)
+}
+
+func freeAOFClient(client *GodisClient) {
+	freeArgs(client)
+	delete(server.clients, client.fd)
+	freeReplyList(client)
 }

@@ -75,6 +75,7 @@ func InitGodisServerInstance(config *conf.Config, logger *logrus.Logger) (*Godis
 	if server.AOF.AppendOnly {
 		AOFClient := InitGodisClientInstance(-1, server)
 		AOFClient.ReadQueryFromAOF()
+		freeAOFClient(AOFClient)
 	}
 
 	// 创建AE事件循环 调用epoll_create 监听系统IO
