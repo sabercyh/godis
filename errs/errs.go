@@ -24,6 +24,9 @@ var (
 // 数据类型errors
 var (
 	SkipListDeleteNodeError = &GodisError{1000, "skip list delete node error"}
+	FieldNotExistError      = &GodisError{1001, "field not exists error"}
+	FieldExistError         = &GodisError{1002, "field exists error"}
+	DelFieldError           = &GodisError{1003, "del field error"}
 )
 
 // 通用errors

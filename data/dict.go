@@ -39,11 +39,44 @@ type Dict struct {
 	// iterators
 }
 
+type dictIterator struct {
+	dict    *Dict
+	htIndex int
+	index   int
+	entry   *Entry
+	Gobjs   [][2]*Gobj
+}
+
 func DictCreate(dictType DictType) *Dict {
 	var dict Dict
 	dict.DictType = dictType
 	dict.rehashidx = -1
 	return &dict
+}
+
+func dictIteratorCreate(dict *Dict) *dictIterator {
+	return &dictIterator{
+		dict:    dict,
+		htIndex: 0,
+		index:   0,
+		entry:   nil,
+		Gobjs:   make([][2]*Gobj, 0),
+	}
+}
+
+func (iterator *dictIterator) Iterate() {
+	if iterator.dict.isRehashing() {
+		iterator.htIndex = 1
+	}
+	for i := 0; i <= iterator.htIndex; i++ {
+		for j := 0; j < len(iterator.dict.hts[i].table); j++ {
+			iterator.entry = iterator.dict.hts[i].table[j]
+			for iterator.entry != nil {
+				iterator.Gobjs = append(iterator.Gobjs, [2]*Gobj{iterator.entry.Key, iterator.entry.Val})
+				iterator.entry = iterator.entry.next
+			}
+		}
+	}
 }
 
 func (dict *Dict) isRehashing() bool {
@@ -315,4 +348,10 @@ func (dict *Dict) RandomGet() *Entry {
 		p = p.next
 	}
 	return p
+}
+
+func (dict *Dict) IterateDict() [][2]*Gobj {
+	iterator := dictIteratorCreate(dict)
+	iterator.Iterate()
+	return iterator.Gobjs
 }
