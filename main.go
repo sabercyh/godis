@@ -3,8 +3,10 @@ package main
 import (
 	"os"
 
+	"github.com/godis/conf"
 	"github.com/godis/server"
 	"github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 )
 
 func main() {
@@ -15,8 +17,19 @@ func main() {
 		TimestampFormat: "2006-01-02 15:04:05", //时间格式
 		FullTimestamp:   true,
 	})
-	server, err := server.InitGodisServerInstance(6767, log)
 
+	var config conf.Config
+	viper.AddConfigPath("./conf/")
+	viper.SetConfigName("config")
+	if err := viper.ReadInConfig(); err != nil {
+		log.Printf("read config error: %v\n", err)
+	}
+
+	if err := viper.Unmarshal(&config); err != nil {
+		log.Printf("unmarshal config error: %v\n", err)
+	}
+	log.Printf("init with config %#v \r\n", config)
+	server, err := server.InitGodisServerInstance(&config, log)
 	if err != nil {
 		log.Printf("init server error: %v\n", err)
 	}

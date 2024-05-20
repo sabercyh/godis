@@ -14,7 +14,6 @@ const (
 	GODIS_MAX_INLINE int = 1024 * 4
 )
 
-
 type Gtype uint8
 
 const (
@@ -26,3 +25,12 @@ const (
 )
 
 type Gval any
+
+type Config struct {
+	Port           int    `json:"port"`
+	AppendOnly     bool   `json:"appendonly"`     //是否启用AOF
+	Dir            string `json:"dir"`            //AOF文件保存路径
+	AppendFilename string `json:"appendfilename"` //AOF文件名
+	Appendfsync    string `json:"appendfsync"`    //AOF持久化策略，AOF_FSYNC_EVERYSEC|AOF_FSYNC_ALWAYS|AOF_FSYNC_NO
+	AOFBufferSize  int    `json:"aofbuffersize"`  //持久化策略为AOF_FSYNC_NO时，缓冲区大小
+}

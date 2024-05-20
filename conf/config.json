@@ -1,0 +1,8 @@
+{
+    "port": 6767,
+    "appendonly":true,
+    "dir":"./persistence/",
+    "appendfilename":"appendonly.aof",
+    "appendfsync":"AOF_FSYNC_ALWAYS",
+    "aofbuffersize":4096
+}

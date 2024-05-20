@@ -2,8 +2,8 @@ package ae
 
 import (
 	"log"
-	"time"
 
+	"github.com/godis/util"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 )
@@ -145,10 +145,6 @@ func (loop *AeLoop) RemoveFileEvent(fd int, mask FeType) {
 	loop.logger.Printf("ae remove file event fd:%v, mask:%v\n", fd, mask)
 }
 
-func GetMsTime() int64 {
-	return time.Now().UnixNano() / 1e6
-}
-
 func (loop *AeLoop) AddTimeEvent(mask TeType, interval int64, proc TimeProc, extra any) int {
 	id := loop.timeEventNextId
 	loop.timeEventNextId++
@@ -156,7 +152,7 @@ func (loop *AeLoop) AddTimeEvent(mask TeType, interval int64, proc TimeProc, ext
 	te.id = id
 	te.mask = mask
 	te.interval = interval
-	te.when = GetMsTime() + interval
+	te.when = util.GetMsTime() + interval
 	te.proc = proc
 	te.extra = extra
 	te.next = loop.TimeEvents
@@ -197,7 +193,7 @@ func AeLoopCreate(logger *logrus.Logger) (*AeLoop, error) {
 }
 
 func (loop *AeLoop) nearestTime() int64 {
-	var nearest int64 = GetMsTime() + 1000
+	var nearest int64 = util.GetMsTime() + 1000
 	p := loop.TimeEvents
 	for p != nil {
 		if p.when < nearest {
@@ -210,9 +206,9 @@ func (loop *AeLoop) nearestTime() int64 {
 
 func (loop *AeLoop) AeWait() (tes []*AeTimeEvent, fes []*AeFileEvent) {
 	// nearestTime 获取最近到来的timeEvent的触发时间
-	// GetMsTime 获取当前的系统事件
+	// util.GetMsTime 获取当前的系统事件
 	// 两者之差为epoll系统调用可以等待的时间，如果timeout时间太短，至少10ms
-	timeout := loop.nearestTime() - GetMsTime()
+	timeout := loop.nearestTime() - util.GetMsTime()
 	if timeout <= 0 {
 		timeout = 10 // at least wait 10ms
 	}
@@ -240,8 +236,8 @@ func (loop *AeLoop) AeWait() (tes []*AeTimeEvent, fes []*AeFileEvent) {
 		}
 	}
 	// collect time events
-	now := GetMsTime()   // 获取当前的时间
-	p := loop.TimeEvents // 获取timeEvent事件链表头节点
+	now := util.GetMsTime() // 获取当前的时间
+	p := loop.TimeEvents    // 获取timeEvent事件链表头节点
 	// 遍历所有的TimeEvent
 	for p != nil {
 		// 如果TimeEvent的执行事件小于当前事件，需要执行，放入ReadyTimeEventsSlice中
@@ -263,7 +259,7 @@ func (loop *AeLoop) AeProcess(tes []*AeTimeEvent, fes []*AeFileEvent) {
 			loop.RemoveTimeEvent(te.id)
 		} else {
 			// 计算TimeEvent的下次执行事件
-			te.when = GetMsTime() + te.interval
+			te.when = util.GetMsTime() + te.interval
 		}
 	}
 	// 遍历FileEvents
