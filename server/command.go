@@ -35,6 +35,13 @@ var cmdTable = map[string]*GodisCommand{
 	"del":    NewGodisCommand("del", delCommand, 2, true),
 	"exists": NewGodisCommand("exists", existsCommand, 2, false),
 	"expire": NewGodisCommand("expire", expireCommand, 3, true),
+
+	"hset":    NewGodisCommand("hset", hsetCommand, 4, true),
+	"hget":    NewGodisCommand("hget", hgetCommand, 3, false),
+	"hdel":    NewGodisCommand("hdel", hdelCommand, 3, true),
+	"hexists": NewGodisCommand("hexists", hexistsCommand, 3, false),
+	"hgetall": NewGodisCommand("hgetall", hgetallCommand, 2, false),
+
 	"zadd":   NewGodisCommand("zadd", zaddCommand, 4, true),
 	"zcard":  NewGodisCommand("zcard", zcardCommand, 2, false),
 	"zscore": NewGodisCommand("zscore", zscoreCommand, 3, false),
@@ -151,6 +158,124 @@ func expireCommand(c *GodisClient) (bool, error) {
 	server.DB.Expire.Set(key, expObj)
 	expObj.DecrRefCount()
 	c.AddReplyStr("+OK\r\n")
+	return true, nil
+}
+
+func hsetCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	htObj := server.DB.Data.Get(key)
+	if htObj != nil {
+		if htObj.Type_ != conf.GDICT {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		htObj = data.CreateObject(conf.GDICT, data.DictCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}))
+		server.DB.Data.Set(key, htObj)
+	}
+	ht := htObj.Val_.(*data.Dict)
+	ht.Set(c.args[2], c.args[3])
+	server.DB.Data.Set(key, htObj)
+	server.DB.Expire.Delete(key)
+	c.AddReplyStr("+OK\r\n")
+	return true, nil
+}
+
+func hgetCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	htObj := findKeyRead(key)
+	if htObj != nil {
+		if htObj.Type_ != conf.GDICT {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		c.AddReplyStr("-ERR:Key Not exist\r\n")
+		return false, errs.KeyNotExistError
+	}
+	ht := htObj.Val_.(*data.Dict)
+	val := ht.Get(c.args[2])
+	if val != nil {
+		if val.Type_ != conf.GSTR {
+			c.AddReplyStr("-ERR: wrong type\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		c.AddReplyStr("-ERR:Field Not exist\r\n")
+		return false, errs.FieldNotExistError
+	}
+	str := val.StrVal()
+	c.AddReplyStr(fmt.Sprintf("$%d%v\r\n", len(str), str))
+	return true, nil
+}
+
+func hgetallCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	htObj := findKeyRead(key)
+	if htObj != nil {
+		if htObj.Type_ != conf.GDICT {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		c.AddReplyStr("-ERR:Key Not exist\r\n")
+		return false, errs.KeyNotExistError
+	}
+	ht := htObj.Val_.(*data.Dict)
+	objs := ht.IterateDict()
+	reply := ""
+	for i := range objs {
+		reply += fmt.Sprintf("$%d%v\r\n$%d%v\r\n", len(objs[i][0].StrVal()), objs[i][0].StrVal(), len(objs[i][1].StrVal()), objs[i][1].StrVal())
+	}
+	c.AddReplyStr(reply)
+	return true, nil
+}
+
+func hexistsCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	htObj := findKeyRead(key)
+	if htObj != nil {
+		if htObj.Type_ != conf.GDICT {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		c.AddReplyStr("-ERR:Key Not exist\r\n")
+		return false, errs.KeyNotExistError
+	}
+	ht := htObj.Val_.(*data.Dict)
+	val := ht.Get(c.args[2])
+	if val != nil {
+		if val.Type_ != conf.GSTR {
+			c.AddReplyStr("-ERR: wrong type\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		c.AddReplyStr("-1\r\n")
+		return false, errs.FieldNotExistError
+	}
+	c.AddReplyStr("1\r\n")
+	return true, nil
+}
+func hdelCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	htObj := server.DB.Data.Get(key)
+	if htObj != nil {
+		if htObj.Type_ != conf.GDICT {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		c.AddReplyStr("-ERR:Key Not exist\r\n")
+		return false, errs.KeyNotExistError
+	}
+	ht := htObj.Val_.(*data.Dict)
+	err := ht.Delete(c.args[2])
+	if err != nil {
+		c.AddReplyStr("-1\r\n")
+		return false, errs.DelFieldError
+	}
+	c.AddReplyStr("1\r\n")
 	return true, nil
 }
 
