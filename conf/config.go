@@ -22,6 +22,7 @@ const (
 	GSET  Gtype = 0x02
 	GZSET Gtype = 0x03
 	GDICT Gtype = 0x04
+	GBIT  Gtype = 0x05
 )
 
 type Gval any

@@ -29,30 +29,33 @@ func NewGodisCommand(name string, proc CommandProc, arity int, isModify bool) *G
 }
 
 var cmdTable = map[string]*GodisCommand{
+	// string
 	"set":    NewGodisCommand("set", setCommand, 3, true),
 	"setnx":  NewGodisCommand("setnx", setnxCommand, 3, true),
 	"get":    NewGodisCommand("get", getCommand, 2, false),
 	"del":    NewGodisCommand("del", delCommand, 2, true),
 	"exists": NewGodisCommand("exists", existsCommand, 2, false),
 	"expire": NewGodisCommand("expire", expireCommand, 3, true),
-
+	//hash
 	"hset":    NewGodisCommand("hset", hsetCommand, 4, true),
 	"hget":    NewGodisCommand("hget", hgetCommand, 3, false),
 	"hdel":    NewGodisCommand("hdel", hdelCommand, 3, true),
 	"hexists": NewGodisCommand("hexists", hexistsCommand, 3, false),
 	"hgetall": NewGodisCommand("hgetall", hgetallCommand, 2, false),
-
+	//zset
 	"zadd":   NewGodisCommand("zadd", zaddCommand, 4, true),
 	"zcard":  NewGodisCommand("zcard", zcardCommand, 2, false),
 	"zscore": NewGodisCommand("zscore", zscoreCommand, 3, false),
-	// ZRANGE key start stop
-	"zrange": NewGodisCommand("zrange", zrangeCommand, 4, false),
-	// ZRANK key member
-	"zrank": NewGodisCommand("zrank", zrankCommand, 3, false),
-	// ZREM key member
-	"zrem": NewGodisCommand("zrem", zremCommand, 3, true),
-	// ZCOUNT key min max
-	"zcount": NewGodisCommand("zcount", zcountCommand, 4, false),
+	"zrange": NewGodisCommand("zrange", zrangeCommand, 4, false), // ZRANGE key start stop
+	"zrank":  NewGodisCommand("zrank", zrankCommand, 3, false),   // ZRANK key member
+	"zrem":   NewGodisCommand("zrem", zremCommand, 3, true),      // ZREM key member
+	"zcount": NewGodisCommand("zcount", zcountCommand, 4, false), // ZCOUNT key min max
+	//bitmap
+	"setbit":   NewGodisCommand("setbit", setbitCommand, 4, true),
+	"getbit":   NewGodisCommand("getbit", getbitCommand, 3, false),
+	"bitcount": NewGodisCommand("bitcount", bitcountCommand, 2, false),
+	"bitop":    NewGodisCommand("bitop", bitopCommand, 4, false),
+	"bitpos":   NewGodisCommand("bitpos", bitposCommand, 3, false),
 }
 
 func expireIfNeeded(key *data.Gobj) {
@@ -422,5 +425,132 @@ func zcountCommand(c *GodisClient) (bool, error) {
 	} else {
 		c.AddReplyStr("(integer) " + fmt.Sprint(number) + "\r\n")
 	}
+	return true, nil
+}
+
+func setbitCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	bitObj := server.DB.Data.Get(key)
+	if bitObj != nil {
+		if bitObj.Type_ != conf.GBIT {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		bitObj = data.CreateObject(conf.GBIT, data.BitmapCreate())
+		server.DB.Data.Set(key, bitObj)
+	}
+	bit := bitObj.Val_.(*data.Bitmap)
+	offset, value := c.args[2].StrVal(), c.args[3].StrVal()
+	err := bit.SetBit(offset, value)
+	if err != nil {
+		c.AddReplyStr(fmt.Sprintf("-ERR:%v\r\n", err))
+		return false, err
+	}
+	server.DB.Data.Set(key, bitObj)
+	server.DB.Expire.Delete(key)
+	c.AddReplyStr("+OK\r\n")
+	return true, nil
+}
+
+func getbitCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	bitObj := findKeyRead(key)
+	if bitObj != nil {
+		if bitObj.Type_ != conf.GBIT {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		bitObj = data.CreateObject(conf.GBIT, data.BitmapCreate())
+		server.DB.Data.Set(key, bitObj)
+	}
+	bit := bitObj.Val_.(*data.Bitmap)
+	offset := c.args[2].StrVal()
+	b, err := bit.GetBit(offset)
+	if err != nil {
+		c.AddReplyStr(fmt.Sprintf("-ERR:%v\r\n", err))
+		return false, err
+	}
+	c.AddReplyStr(fmt.Sprintf("%d\r\n", b))
+	return true, nil
+}
+
+func bitcountCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	bitObj := findKeyRead(key)
+	if bitObj != nil {
+		if bitObj.Type_ != conf.GBIT {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		bitObj = data.CreateObject(conf.GBIT, data.BitmapCreate())
+		server.DB.Data.Set(key, bitObj)
+	}
+	bit := bitObj.Val_.(*data.Bitmap)
+	count := bit.BitCount()
+	c.AddReplyStr(fmt.Sprintf("%d\r\n", count))
+	return true, nil
+}
+
+func bitopCommand(c *GodisClient) (bool, error) {
+	op := c.args[1].StrVal()
+	key1, key2 := c.args[2], c.args[3]
+	bitObj1 := findKeyRead(key1)
+	if bitObj1 != nil {
+		if bitObj1.Type_ != conf.GBIT {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		bitObj1 = data.CreateObject(conf.GBIT, data.BitmapCreate())
+		server.DB.Data.Set(key1, bitObj1)
+	}
+	bitObj2 := findKeyRead(key2)
+	if bitObj2 != nil {
+		if bitObj2.Type_ != conf.GBIT {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		bitObj2 = data.CreateObject(conf.GBIT, data.BitmapCreate())
+		server.DB.Data.Set(key2, bitObj2)
+	}
+
+	bit1, bit2 := bitObj1.Val_.(*data.Bitmap), bitObj2.Val_.(*data.Bitmap)
+
+	res, err := bit1.BitOp(bit2, op)
+	if err != nil {
+		c.AddReplyStr(fmt.Sprintf("-ERR:%v\r\n", err))
+		return false, err
+	}
+	c.AddReplyStr(fmt.Sprintf("%v\r\n", res))
+	return true, nil
+}
+func bitposCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	bitObj := findKeyRead(key)
+	if bitObj != nil {
+		if bitObj.Type_ != conf.GBIT {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		bitObj = data.CreateObject(conf.GBIT, data.BitmapCreate())
+		server.DB.Data.Set(key, bitObj)
+	}
+	bit := bitObj.Val_.(*data.Bitmap)
+	offset, err := bit.BitPos(c.args[2].StrVal())
+	if err != nil {
+		if err == errs.BitNotFoundError {
+			c.AddReplyStr("-1\r\n")
+			return false, nil
+		} else {
+			c.AddReplyStr(fmt.Sprintf("-ERR:%v\r\n", err))
+			return false, err
+		}
+	}
+	c.AddReplyStr(fmt.Sprintf("%d\r\n", offset))
 	return true, nil
 }

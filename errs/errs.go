@@ -27,6 +27,10 @@ var (
 	FieldNotExistError      = &GodisError{1001, "field not exists error"}
 	FieldExistError         = &GodisError{1002, "field exists error"}
 	DelFieldError           = &GodisError{1003, "del field error"}
+	BitNotFoundError        = &GodisError{1004, "bit not found error"}
+	BitOffsetError          = &GodisError{1005, "bit offset is not an integer or out of range"}
+	BitValueError           = &GodisError{1006, "bit is not an integer or out of range"}
+	BitOpError              = &GodisError{1007, "bitop error"}
 )
 
 // 通用errors
