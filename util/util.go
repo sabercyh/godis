@@ -9,3 +9,10 @@ func GetMsTime() int64 {
 func GetTime() int64 {
 	return time.Now().Unix()
 }
+
+func Max(x, y int) int {
+	if x > y {
+		return x
+	}
+	return y
+}
