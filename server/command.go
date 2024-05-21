@@ -42,6 +42,16 @@ var cmdTable = map[string]*GodisCommand{
 	"hdel":    NewGodisCommand("hdel", hdelCommand, 3, true),
 	"hexists": NewGodisCommand("hexists", hexistsCommand, 3, false),
 	"hgetall": NewGodisCommand("hgetall", hgetallCommand, 2, false),
+	//set
+	"sadd":        NewGodisCommand("sadd", saddCommand, 3, true),
+	"scard":       NewGodisCommand("scard", scardCommand, 2, false),
+	"sismember":   NewGodisCommand("sismember", sismemberCommand, 3, false),
+	"smembers":    NewGodisCommand("smembers", smembersCommand, 2, false),
+	"srandmember": NewGodisCommand("srandmember", srandmemberCommand, 2, false),
+	"srem":        NewGodisCommand("srem", sremCommand, 3, true),
+	// "sdiff":    NewGodisCommand("sdiff", sdiffCommand, 3, false),
+	// "sinter": NewGodisCommand("sinter", sinterCommand, 3, false),
+	// "sunion": NewGodisCommand("sunion", sunionCommand, 3, false),
 	//zset
 	"zadd":   NewGodisCommand("zadd", zaddCommand, 4, true),
 	"zcard":  NewGodisCommand("zcard", zcardCommand, 2, false),
@@ -81,7 +91,7 @@ func getCommand(c *GodisClient) (bool, error) {
 	val := findKeyRead(key)
 	if val == nil {
 		// TODO: extract shared.strings
-		c.AddReplyStr("$-1\r\n")
+		c.AddReplyStr("(nil)\r\n")
 		return false, errs.KeyNotExistError
 	} else if val.Type_ != conf.GSTR {
 		// TODO: extract shared.strings
@@ -99,10 +109,10 @@ func delCommand(c *GodisClient) (bool, error) {
 	key := c.args[1]
 	err := server.DB.Data.Delete(key)
 	if err != nil {
-		c.AddReplyStr("$-1\r\n")
+		c.AddReplyStr("(integer) 0\r\n")
 		return false, errs.DelKeyError
 	}
-	c.AddReplyStr("$1\r\n")
+	c.AddReplyStr("(integer) 1\r\n")
 	return true, nil
 
 }
@@ -130,21 +140,21 @@ func setnxCommand(c *GodisClient) (bool, error) {
 	}
 	err := server.DB.Data.SetNx(key, val)
 	if err != nil {
-		c.AddReplyStr("$-1\r\n")
+		c.AddReplyStr("(integer) 0\r\n")
 		return false, errs.KeyExistsError
 	}
 	server.DB.Expire.Delete(key)
-	c.AddReplyStr("+OK\r\n")
+	c.AddReplyStr("(integer) 1\r\n")
 	return true, nil
 }
 func existsCommand(c *GodisClient) (bool, error) {
 	key := c.args[1]
 	val := findKeyRead(key)
 	if val == nil {
-		c.AddReplyStr("$0\r\n")
+		c.AddReplyStr("(integer) 0\r\n")
 		return false, errs.KeyNotExistError
 	}
-	c.AddReplyStr("$1\r\n")
+	c.AddReplyStr("(integer) 1\r\n")
 	return true, nil
 
 }
@@ -180,7 +190,7 @@ func hsetCommand(c *GodisClient) (bool, error) {
 	ht.Set(c.args[2], c.args[3])
 	server.DB.Data.Set(key, htObj)
 	server.DB.Expire.Delete(key)
-	c.AddReplyStr("+OK\r\n")
+	c.AddReplyStr("(integer) 1\r\n")
 	return true, nil
 }
 
@@ -193,7 +203,7 @@ func hgetCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		c.AddReplyStr("-ERR:Key Not exist\r\n")
+		c.AddReplyStr("(nil)\r\n")
 		return false, errs.KeyNotExistError
 	}
 	ht := htObj.Val_.(*data.Dict)
@@ -204,7 +214,7 @@ func hgetCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		c.AddReplyStr("-ERR:Field Not exist\r\n")
+		c.AddReplyStr("(nil)\r\n")
 		return false, errs.FieldNotExistError
 	}
 	str := val.StrVal()
@@ -221,14 +231,14 @@ func hgetallCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		c.AddReplyStr("-ERR:Key Not exist\r\n")
+		c.AddReplyStr("(nil)\r\n")
 		return false, errs.KeyNotExistError
 	}
 	ht := htObj.Val_.(*data.Dict)
 	objs := ht.IterateDict()
 	reply := ""
 	for i := range objs {
-		reply += fmt.Sprintf("$%d%v\r\n$%d%v\r\n", len(objs[i][0].StrVal()), objs[i][0].StrVal(), len(objs[i][1].StrVal()), objs[i][1].StrVal())
+		reply += fmt.Sprintf("%d) $%d%v\r\n%d) $%d%v\r\n", 2*i, len(objs[i][0].StrVal()), objs[i][0].StrVal(), 2*i+1, len(objs[i][1].StrVal()), objs[i][1].StrVal())
 	}
 	c.AddReplyStr(reply)
 	return true, nil
@@ -243,7 +253,7 @@ func hexistsCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		c.AddReplyStr("-ERR:Key Not exist\r\n")
+		c.AddReplyStr("(integer) 0\r\n")
 		return false, errs.KeyNotExistError
 	}
 	ht := htObj.Val_.(*data.Dict)
@@ -254,10 +264,10 @@ func hexistsCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		c.AddReplyStr("-1\r\n")
+		c.AddReplyStr("(integer) 0\r\n")
 		return false, errs.FieldNotExistError
 	}
-	c.AddReplyStr("1\r\n")
+	c.AddReplyStr("(integer) 1\r\n")
 	return true, nil
 }
 func hdelCommand(c *GodisClient) (bool, error) {
@@ -269,19 +279,148 @@ func hdelCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		c.AddReplyStr("-ERR:Key Not exist\r\n")
+		c.AddReplyStr("(integer) 0\r\n")
 		return false, errs.KeyNotExistError
 	}
 	ht := htObj.Val_.(*data.Dict)
 	err := ht.Delete(c.args[2])
 	if err != nil {
-		c.AddReplyStr("-1\r\n")
+		c.AddReplyStr("(integer) 0\r\n")
 		return false, errs.DelFieldError
 	}
-	c.AddReplyStr("1\r\n")
+	c.AddReplyStr("(integer) 1\r\n")
 	return true, nil
 }
 
+func saddCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	setObj := server.DB.Data.Get(key)
+	if setObj != nil {
+		if setObj.Type_ != conf.GSET {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		setObj = data.CreateObject(conf.GSET, data.SetCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}))
+		server.DB.Data.Set(key, setObj)
+	}
+	set := setObj.Val_.(*data.Set)
+	err := set.SAdd(c.args[2])
+	server.DB.Data.Set(key, setObj)
+	server.DB.Expire.Delete(key)
+	if err != nil {
+		c.AddReplyStr("(integer) 0\r\n")
+		return false, err
+	}
+	c.AddReplyStr("(integer) 1\r\n")
+	return true, nil
+}
+
+func smembersCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	setObj := findKeyRead(key)
+	if setObj != nil {
+		if setObj.Type_ != conf.GSET {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		c.AddReplyStr("(integer) 0\r\n")
+		return false, errs.KeyNotExistError
+	}
+	set := setObj.Val_.(*data.Set)
+	members := set.Dict.IterateDict()
+	reply := ""
+	for i := range members {
+		reply += fmt.Sprintf("%d) $%d%v\r\n", i, len(members[i][0].StrVal()), members[i][0].StrVal())
+	}
+	c.AddReplyStr(reply)
+	return true, nil
+}
+
+func scardCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	setObj := findKeyRead(key)
+	if setObj != nil {
+		if setObj.Type_ != conf.GSET {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		c.AddReplyStr("(integer) 0\r\n")
+		return false, errs.KeyNotExistError
+	}
+	set := setObj.Val_.(*data.Set)
+
+	c.AddReplyStr(fmt.Sprintf("(integer) %d\r\n", set.Len))
+	return true, nil
+}
+func sismemberCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	setObj := findKeyRead(key)
+	if setObj != nil {
+		if setObj.Type_ != conf.GSET {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		c.AddReplyStr("(integer) 0\r\n")
+		return false, errs.KeyNotExistError
+	}
+	set := setObj.Val_.(*data.Set)
+	target := c.args[2]
+	member := set.Dict.Find(target)
+	if member == nil {
+		c.AddReplyStr("(integer) 0\r\n")
+		return true, nil
+	}
+	c.AddReplyStr("(integer) 1\r\n")
+	return true, nil
+}
+func srandmemberCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	setObj := server.DB.Data.Get(key)
+	if setObj != nil {
+		if setObj.Type_ != conf.GSET {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		setObj = data.CreateObject(conf.GSET, data.SetCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}))
+		server.DB.Data.Set(key, setObj)
+	}
+	set := setObj.Val_.(*data.Set)
+	member := set.Dict.RandomGet()
+	if member == nil {
+		c.AddReplyStr("(nil)\r\n")
+		return false, nil
+	}
+	c.AddReplyStr(fmt.Sprintf("$%d%v\r\n", len(member.Key.StrVal()), member.Key.StrVal()))
+	return true, nil
+}
+
+func sremCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	setObj := server.DB.Data.Get(key)
+	if setObj != nil {
+		if setObj.Type_ != conf.GSET {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		setObj = data.CreateObject(conf.GSET, data.SetCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}))
+		server.DB.Data.Set(key, setObj)
+	}
+	set := setObj.Val_.(*data.Set)
+	member := c.args[2]
+	err := set.Dict.Delete(member)
+	if err != nil {
+		c.AddReplyStr("(integer) 0\r\n")
+		return false, nil
+	}
+	c.AddReplyStr("(integer) 1\r\n")
+	return true, nil
+}
 func zaddCommand(c *GodisClient) (bool, error) {
 	key := c.args[1]
 	zsObj := server.DB.Data.Get(key)
@@ -449,7 +588,7 @@ func setbitCommand(c *GodisClient) (bool, error) {
 	}
 	server.DB.Data.Set(key, bitObj)
 	server.DB.Expire.Delete(key)
-	c.AddReplyStr("+OK\r\n")
+	c.AddReplyStr(fmt.Sprintf("(integer) %s\r\n", value))
 	return true, nil
 }
 
@@ -472,7 +611,7 @@ func getbitCommand(c *GodisClient) (bool, error) {
 		c.AddReplyStr(fmt.Sprintf("-ERR:%v\r\n", err))
 		return false, err
 	}
-	c.AddReplyStr(fmt.Sprintf("%d\r\n", b))
+	c.AddReplyStr(fmt.Sprintf("(integer) %s\r\n", string(b)))
 	return true, nil
 }
 
@@ -490,7 +629,7 @@ func bitcountCommand(c *GodisClient) (bool, error) {
 	}
 	bit := bitObj.Val_.(*data.Bitmap)
 	count := bit.BitCount()
-	c.AddReplyStr(fmt.Sprintf("%d\r\n", count))
+	c.AddReplyStr(fmt.Sprintf("(integer) %d\r\n", count))
 	return true, nil
 }
 
@@ -544,13 +683,13 @@ func bitposCommand(c *GodisClient) (bool, error) {
 	offset, err := bit.BitPos(c.args[2].StrVal())
 	if err != nil {
 		if err == errs.BitNotFoundError {
-			c.AddReplyStr("-1\r\n")
+			c.AddReplyStr("(integer) -1\r\n")
 			return false, nil
 		} else {
 			c.AddReplyStr(fmt.Sprintf("-ERR:%v\r\n", err))
 			return false, err
 		}
 	}
-	c.AddReplyStr(fmt.Sprintf("%d\r\n", offset))
+	c.AddReplyStr(fmt.Sprintf("(integer) %d\r\n", offset))
 	return true, nil
 }
