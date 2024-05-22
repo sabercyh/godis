@@ -36,13 +36,23 @@ var cmdTable = map[string]*GodisCommand{
 	"del":    NewGodisCommand("del", delCommand, 2, true),
 	"exists": NewGodisCommand("exists", existsCommand, 2, false),
 	"expire": NewGodisCommand("expire", expireCommand, 3, true),
-	//hash
+	// list
+	"lpush":  NewGodisCommand("lpush", lpushCommand, 3, true),
+	"lpop":   NewGodisCommand("lpop", lpopCommand, 2, true),
+	"rpush":  NewGodisCommand("rpush", rpushCommand, 3, true),
+	"rpop":   NewGodisCommand("rpop", rpopCommand, 2, true),
+	"lset":   NewGodisCommand("lset", lsetCommand, 4, true),
+	"lrem":   NewGodisCommand("lrem", lremCommand, 3, true),
+	"llen":   NewGodisCommand("llen", llenCommand, 2, false),
+	"lindex": NewGodisCommand("lindex", lindexCommand, 3, false),
+	"lrange": NewGodisCommand("lrange", lrangeCommand, 4, false),
+	// hash
 	"hset":    NewGodisCommand("hset", hsetCommand, 4, true),
 	"hget":    NewGodisCommand("hget", hgetCommand, 3, false),
 	"hdel":    NewGodisCommand("hdel", hdelCommand, 3, true),
 	"hexists": NewGodisCommand("hexists", hexistsCommand, 3, false),
 	"hgetall": NewGodisCommand("hgetall", hgetallCommand, 2, false),
-	//set
+	// set
 	"sadd":        NewGodisCommand("sadd", saddCommand, 3, true),
 	"scard":       NewGodisCommand("scard", scardCommand, 2, false),
 	"sismember":   NewGodisCommand("sismember", sismemberCommand, 3, false),
@@ -52,7 +62,7 @@ var cmdTable = map[string]*GodisCommand{
 	"sinter":      NewGodisCommand("sinter", sinterCommand, 3, false),
 	"sdiff":       NewGodisCommand("sdiff", sdiffCommand, 3, false),
 	"sunion":      NewGodisCommand("sunion", sunionCommand, 3, false),
-	//zset
+	// zset
 	"zadd":   NewGodisCommand("zadd", zaddCommand, 4, true),
 	"zcard":  NewGodisCommand("zcard", zcardCommand, 2, false),
 	"zscore": NewGodisCommand("zscore", zscoreCommand, 3, false),
@@ -60,7 +70,7 @@ var cmdTable = map[string]*GodisCommand{
 	"zrank":  NewGodisCommand("zrank", zrankCommand, 3, false),   // ZRANK key member
 	"zrem":   NewGodisCommand("zrem", zremCommand, 3, true),      // ZREM key member
 	"zcount": NewGodisCommand("zcount", zcountCommand, 4, false), // ZCOUNT key min max
-	//bitmap
+	// bitmap
 	"setbit":   NewGodisCommand("setbit", setbitCommand, 4, true),
 	"getbit":   NewGodisCommand("getbit", getbitCommand, 3, false),
 	"bitcount": NewGodisCommand("bitcount", bitcountCommand, 2, false),
@@ -174,6 +184,202 @@ func expireCommand(c *GodisClient) (bool, error) {
 	return true, nil
 }
 
+func lpushCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	listObj := server.DB.Data.Get(key)
+	if listObj != nil {
+		if listObj.Type_ != conf.GLIST {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		listObj = data.CreateObject(conf.GLIST, data.ListCreate(data.ListType{EqualFunc: data.GStrEqual}))
+		server.DB.Data.Set(key, listObj)
+	}
+	list := listObj.Val_.(*data.List)
+	list.LPush(c.args[2])
+	server.DB.Data.Set(key, listObj)
+	server.DB.Expire.Delete(key)
+	c.AddReplyStr(fmt.Sprintf("(integer) %d\r\n", list.Length()))
+	return true, nil
+}
+func lpopCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	listObj := server.DB.Data.Get(key)
+	if listObj != nil {
+		if listObj.Type_ != conf.GLIST {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		listObj = data.CreateObject(conf.GLIST, data.ListCreate(data.ListType{EqualFunc: data.GStrEqual}))
+		server.DB.Data.Set(key, listObj)
+	}
+	list := listObj.Val_.(*data.List)
+	nodeVal := list.LPop()
+	server.DB.Data.Set(key, listObj)
+	server.DB.Expire.Delete(key)
+	if nodeVal == nil {
+		c.AddReplyStr("(nil)\r\n")
+		return false, nil
+	}
+	c.AddReplyStr(fmt.Sprintf("$%d%s\r\n", len(nodeVal.StrVal()), nodeVal.StrVal()))
+	return true, nil
+}
+func rpushCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	listObj := server.DB.Data.Get(key)
+	if listObj != nil {
+		if listObj.Type_ != conf.GLIST {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		listObj = data.CreateObject(conf.GLIST, data.ListCreate(data.ListType{EqualFunc: data.GStrEqual}))
+		server.DB.Data.Set(key, listObj)
+	}
+	list := listObj.Val_.(*data.List)
+	list.RPush(c.args[2])
+	server.DB.Data.Set(key, listObj)
+	server.DB.Expire.Delete(key)
+	c.AddReplyStr(fmt.Sprintf("(integer) %d\r\n", list.Length()))
+	return true, nil
+}
+
+func rpopCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	listObj := server.DB.Data.Get(key)
+	if listObj != nil {
+		if listObj.Type_ != conf.GLIST {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		listObj = data.CreateObject(conf.GLIST, data.ListCreate(data.ListType{EqualFunc: data.GStrEqual}))
+		server.DB.Data.Set(key, listObj)
+	}
+	list := listObj.Val_.(*data.List)
+	nodeVal := list.RPop()
+	server.DB.Data.Set(key, listObj)
+	server.DB.Expire.Delete(key)
+	if nodeVal == nil {
+		c.AddReplyStr("(nil)\r\n")
+		return false, nil
+	}
+	c.AddReplyStr(fmt.Sprintf("$%d%s\r\n", len(nodeVal.StrVal()), nodeVal.StrVal()))
+	return true, nil
+}
+
+func llenCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	listObj := server.DB.Data.Get(key)
+	if listObj != nil {
+		if listObj.Type_ != conf.GLIST {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		listObj = data.CreateObject(conf.GLIST, data.ListCreate(data.ListType{EqualFunc: data.GStrEqual}))
+		server.DB.Data.Set(key, listObj)
+	}
+	list := listObj.Val_.(*data.List)
+	c.AddReplyStr(fmt.Sprintf("(integer) %d\r\n", list.Length()))
+	return true, nil
+}
+
+func lindexCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	listObj := server.DB.Data.Get(key)
+	if listObj != nil {
+		if listObj.Type_ != conf.GLIST {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		listObj = data.CreateObject(conf.GLIST, data.ListCreate(data.ListType{EqualFunc: data.GStrEqual}))
+		server.DB.Data.Set(key, listObj)
+	}
+	list := listObj.Val_.(*data.List)
+	index := c.args[2].IntVal()
+	node := list.Index(int(index))
+	if node == nil {
+		c.AddReplyStr("(nil)\r\n")
+		return true, nil
+	}
+	c.AddReplyStr(fmt.Sprintf("$%d%s\r\n", len(node.Val.StrVal()), node.Val.StrVal()))
+	return true, nil
+}
+
+func lsetCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	listObj := server.DB.Data.Get(key)
+	if listObj != nil {
+		if listObj.Type_ != conf.GLIST {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		listObj = data.CreateObject(conf.GLIST, data.ListCreate(data.ListType{EqualFunc: data.GStrEqual}))
+		server.DB.Data.Set(key, listObj)
+	}
+	list := listObj.Val_.(*data.List)
+	index := c.args[2].IntVal()
+	err := list.Set(int(index), c.args[3])
+	if err != nil {
+		c.AddReplyStr("(error) index out of range\r\n")
+		return false, nil
+	}
+	c.AddReplyStr("+OK\r\n")
+	return true, nil
+}
+
+func lremCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	listObj := server.DB.Data.Get(key)
+	if listObj != nil {
+		if listObj.Type_ != conf.GLIST {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		listObj = data.CreateObject(conf.GLIST, data.ListCreate(data.ListType{EqualFunc: data.GStrEqual}))
+		server.DB.Data.Set(key, listObj)
+	}
+	list := listObj.Val_.(*data.List)
+	err := list.Rem(c.args[2])
+	if err != nil {
+		c.AddReplyStr("(integer) 0\r\n")
+		return false, nil
+	}
+	c.AddReplyStr("(integer) 1\r\n")
+	return true, nil
+}
+func lrangeCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	listObj := server.DB.Data.Get(key)
+	if listObj != nil {
+		if listObj.Type_ != conf.GLIST {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		listObj = data.CreateObject(conf.GLIST, data.ListCreate(data.ListType{EqualFunc: data.GStrEqual}))
+		server.DB.Data.Set(key, listObj)
+	}
+	list := listObj.Val_.(*data.List)
+	left, right := int(c.args[2].IntVal()), int(c.args[3].IntVal())
+	Gobjs := list.Range(left, right)
+	if len(Gobjs) == 0 {
+		c.AddReplyStr("(empty array)\r\n")
+		return true, nil
+	}
+	reply := ""
+	for i := range Gobjs {
+		reply += fmt.Sprintf("%d) $%d%v\r\n", i+1, len(Gobjs[i].StrVal()), Gobjs[i].StrVal())
+	}
+	c.AddReplyStr(reply)
+	return true, nil
+}
 func hsetCommand(c *GodisClient) (bool, error) {
 	key := c.args[1]
 	htObj := server.DB.Data.Get(key)
