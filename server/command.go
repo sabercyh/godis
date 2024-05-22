@@ -49,9 +49,9 @@ var cmdTable = map[string]*GodisCommand{
 	"smembers":    NewGodisCommand("smembers", smembersCommand, 2, false),
 	"srandmember": NewGodisCommand("srandmember", srandmemberCommand, 2, false),
 	"srem":        NewGodisCommand("srem", sremCommand, 3, true),
-	// "sdiff":    NewGodisCommand("sdiff", sdiffCommand, 3, false),
-	// "sinter": NewGodisCommand("sinter", sinterCommand, 3, false),
-	// "sunion": NewGodisCommand("sunion", sunionCommand, 3, false),
+	"sinter":      NewGodisCommand("sinter", sinterCommand, 3, false),
+	"sdiff":       NewGodisCommand("sdiff", sdiffCommand, 3, false),
+	"sunion":      NewGodisCommand("sunion", sunionCommand, 3, false),
 	//zset
 	"zadd":   NewGodisCommand("zadd", zaddCommand, 4, true),
 	"zcard":  NewGodisCommand("zcard", zcardCommand, 2, false),
@@ -238,7 +238,7 @@ func hgetallCommand(c *GodisClient) (bool, error) {
 	objs := ht.IterateDict()
 	reply := ""
 	for i := range objs {
-		reply += fmt.Sprintf("%d) $%d%v\r\n%d) $%d%v\r\n", 2*i, len(objs[i][0].StrVal()), objs[i][0].StrVal(), 2*i+1, len(objs[i][1].StrVal()), objs[i][1].StrVal())
+		reply += fmt.Sprintf("%d) $%d%v\r\n%d) $%d%v\r\n", 2*i+1, len(objs[i][0].StrVal()), objs[i][0].StrVal(), 2*i+2, len(objs[i][1].StrVal()), objs[i][1].StrVal())
 	}
 	c.AddReplyStr(reply)
 	return true, nil
@@ -332,7 +332,7 @@ func smembersCommand(c *GodisClient) (bool, error) {
 	members := set.Dict.IterateDict()
 	reply := ""
 	for i := range members {
-		reply += fmt.Sprintf("%d) $%d%v\r\n", i, len(members[i][0].StrVal()), members[i][0].StrVal())
+		reply += fmt.Sprintf("%d) $%d%v\r\n", i+1, len(members[i][0].StrVal()), members[i][0].StrVal())
 	}
 	c.AddReplyStr(reply)
 	return true, nil
@@ -419,6 +419,123 @@ func sremCommand(c *GodisClient) (bool, error) {
 		return false, nil
 	}
 	c.AddReplyStr("(integer) 1\r\n")
+	return true, nil
+}
+
+func sinterCommand(c *GodisClient) (bool, error) {
+	key1, key2 := c.args[1], c.args[2]
+	setObj1 := findKeyRead(key1)
+	if setObj1 != nil {
+		if setObj1.Type_ != conf.GSET {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		setObj1 = data.CreateObject(conf.GSET, data.SetCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}))
+		server.DB.Data.Set(key1, setObj1)
+	}
+	set1 := setObj1.Val_.(*data.Set)
+
+	setObj2 := findKeyRead(key2)
+	if setObj2 != nil {
+		if setObj2.Type_ != conf.GSET {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		setObj2 = data.CreateObject(conf.GSET, data.SetCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}))
+		server.DB.Data.Set(key2, setObj2)
+	}
+	set2 := setObj2.Val_.(*data.Set)
+
+	inter := set1.SInter(set2)
+	if len(inter) == 0 {
+		c.AddReplyStr("(empty array)\r\n")
+		return true, nil
+	}
+	reply := ""
+	for i := range inter {
+		reply += fmt.Sprintf("%d) $%d%v\r\n", i+1, len(inter[i]), inter[i])
+	}
+	c.AddReplyStr(reply)
+	return true, nil
+}
+
+func sdiffCommand(c *GodisClient) (bool, error) {
+	key1, key2 := c.args[1], c.args[2]
+	setObj1 := findKeyRead(key1)
+	if setObj1 != nil {
+		if setObj1.Type_ != conf.GSET {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		setObj1 = data.CreateObject(conf.GSET, data.SetCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}))
+		server.DB.Data.Set(key1, setObj1)
+	}
+	set1 := setObj1.Val_.(*data.Set)
+
+	setObj2 := findKeyRead(key2)
+	if setObj2 != nil {
+		if setObj2.Type_ != conf.GSET {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		setObj2 = data.CreateObject(conf.GSET, data.SetCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}))
+		server.DB.Data.Set(key2, setObj2)
+	}
+	set2 := setObj2.Val_.(*data.Set)
+
+	diff := set1.SDiff(set2)
+	if len(diff) == 0 {
+		c.AddReplyStr("(empty array)\r\n")
+		return true, nil
+	}
+	reply := ""
+	for i := range diff {
+		reply += fmt.Sprintf("%d) $%d%v\r\n", i+1, len(diff[i]), diff[i])
+	}
+	c.AddReplyStr(reply)
+	return true, nil
+}
+
+func sunionCommand(c *GodisClient) (bool, error) {
+	key1, key2 := c.args[1], c.args[2]
+	setObj1 := findKeyRead(key1)
+	if setObj1 != nil {
+		if setObj1.Type_ != conf.GSET {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		setObj1 = data.CreateObject(conf.GSET, data.SetCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}))
+		server.DB.Data.Set(key1, setObj1)
+	}
+	set1 := setObj1.Val_.(*data.Set)
+
+	setObj2 := findKeyRead(key2)
+	if setObj2 != nil {
+		if setObj2.Type_ != conf.GSET {
+			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		setObj2 = data.CreateObject(conf.GSET, data.SetCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}))
+		server.DB.Data.Set(key2, setObj2)
+	}
+	set2 := setObj2.Val_.(*data.Set)
+
+	union := set1.SUnion(set2)
+	if len(union) == 0 {
+		c.AddReplyStr("(empty array)\r\n")
+		return true, nil
+	}
+	reply := ""
+	for i := range union {
+		reply += fmt.Sprintf("%d) $%d%v\r\n", i+1, len(union[i]), union[i])
+	}
+	c.AddReplyStr(reply)
 	return true, nil
 }
 func zaddCommand(c *GodisClient) (bool, error) {

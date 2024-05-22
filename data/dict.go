@@ -65,6 +65,10 @@ func dictIteratorCreate(dict *Dict) *dictIterator {
 }
 
 func (iterator *dictIterator) Iterate() {
+	//若未初始化，则不迭代
+	if iterator.dict.hts[0] == nil {
+		return
+	}
 	if iterator.dict.isRehashing() {
 		iterator.htIndex = 1
 	}
