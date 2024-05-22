@@ -31,6 +31,7 @@ var (
 	BitOffsetError          = &GodisError{1005, "bit offset is not an integer or out of range"}
 	BitValueError           = &GodisError{1006, "bit is not an integer or out of range"}
 	BitOpError              = &GodisError{1007, "bitop error"}
+	NodeNotFoundError       = &GodisError{1008, "node not found error"}
 )
 
 // 通用errors
