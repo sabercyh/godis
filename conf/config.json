@@ -1,8 +1,13 @@
 {
-    "port": 6767,
+    "port": 6767,   
+    "workerid":0,
+
     "appendonly":false,
     "dir":"./persistence/",
     "appendfilename":"appendonly.aof",
     "appendfsync":"AOF_FSYNC_ALWAYS",
-    "aofbuffersize":4096
+    "aofbuffersize":4096,
+
+    "slowlogslowerthan":10000,
+    "slowlogmaxlen":1000
 }

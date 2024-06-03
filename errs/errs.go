@@ -19,6 +19,7 @@ var (
 	OutOfRangeError     = &GodisError{103, "out of range error"}
 	AOFBufferWriteError = &GodisError{104, "aof buffer write error"}
 	AOFFileSaveError    = &GodisError{105, "aof file save error"}
+	UnknownError        = &GodisError{106, "unknown error"}
 )
 
 // 数据类型errors

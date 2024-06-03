@@ -215,3 +215,10 @@ func (list *List) DelNode(n *Node) {
 func (list *List) Delete(val *Gobj) {
 	list.DelNode(list.Find(val))
 }
+
+func (list *List) Clear() {
+	for list.Head != nil {
+		list.DelNode(list.Head)
+	}
+	list = nil
+}
