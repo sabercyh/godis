@@ -10,7 +10,6 @@ import (
 	"github.com/godis/db"
 	"github.com/godis/errs"
 	"github.com/godis/net"
-	"github.com/godis/persistence"
 	"github.com/godis/util"
 	"github.com/sirupsen/logrus"
 )
@@ -27,7 +26,6 @@ type GodisClient struct {
 	bulkNum  int
 	bulkLen  int
 	logEntry *logrus.Entry
-	AOF      *persistence.AOF
 }
 
 // 建立连接成功创建client实例
@@ -40,7 +38,6 @@ func InitGodisClientInstance(fd int, server *GodisServer) *GodisClient {
 		logEntry: server.logger.WithFields(logrus.Fields{
 			"clientFD": fd,
 		}),
-		AOF: server.AOF,
 	}
 }
 
@@ -309,21 +306,21 @@ func ProcessCommand(c *GodisClient) {
 		}))
 	}
 
-	if c.fd == -1 || !c.AOF.AppendOnly {
+	if c.fd == -1 || !server.AOF.AppendOnly {
 		return
 	}
 
 	if cmd.isModify && ok {
 		//针对expire命令，需要计算过期的绝对时间
 		if cmd.name == "expire" {
-			err := c.AOF.PersistExpireCommand(c.args)
+			err := server.AOF.PersistExpireCommand(c.args)
 			if err != nil {
-				c.logEntry.Printf("AOF persist failed. Command: %v Appendfsync: %d Err: %v\r\n", c.AOF.Command, c.AOF.Appendfsync, err)
+				c.logEntry.Printf("AOF persist failed. Command: %v Appendfsync: %d Err: %v\r\n", server.AOF.Command, server.AOF.Appendfsync, err)
 			}
 		} else {
-			err := c.AOF.PersistCommand(c.args)
+			err := server.AOF.PersistCommand(c.args)
 			if err != nil {
-				c.logEntry.Printf("AOF persist failed. Command: %v Appendfsync: %d Err: %v\r\n", c.AOF.Command, c.AOF.Appendfsync, err)
+				c.logEntry.Printf("AOF persist failed. Command: %v Appendfsync: %d Err: %v\r\n", server.AOF.Command, server.AOF.Appendfsync, err)
 			}
 		}
 	}
@@ -359,7 +356,7 @@ func ReadQueryFromClient(loop *ae.AeLoop, fd int, extra any) {
 
 func (client *GodisClient) ReadQueryFromAOF() {
 	for {
-		n, err := client.AOF.Buffer.Read(client.queryBuf[client.queryLen : client.queryLen+4096])
+		n, err := server.AOF.Buffer.Read(client.queryBuf[client.queryLen : client.queryLen+4096])
 		if err != nil {
 			break
 		}

@@ -1,5 +1,22 @@
 package conf
 
+type RDBOp byte
+type RDBLenType byte
+
+const (
+	RDB_APPNAME       string = "GODIS"
+	RDB_GODIS_VERSION string = "0001"
+
+	RDB_Expire RDBOp = 0xfd
+	RDB_EOF    RDBOp = 0xff
+)
+
+const (
+	RDB_BUF_BLOCK_SIZE    = 10 * 1024 * 1024
+	AOF_RW_BUF_BLOCK_SIZE = 10 * 1024 * 1024
+	AOF_BUF_BLOCK_SIZE    = 10 * 1024 * 1024
+)
+
 type CmdType = byte
 
 const (
@@ -32,11 +49,14 @@ type Config struct {
 	Port     int   `json:"port"`
 	WorkerID int64 `json:"workerid"`
 
+	RDBCompression bool   `json:"rdbcompression"`
+	RDBCheckSum    bool   `json:"rdbchecksum"`
+	DBFilename     string `json:"dbfilename"`
+
 	AppendOnly     bool   `json:"appendonly"`     //是否启用AOF
 	Dir            string `json:"dir"`            //AOF文件保存路径
 	AppendFilename string `json:"appendfilename"` //AOF文件名
 	Appendfsync    string `json:"appendfsync"`    //AOF持久化策略，AOF_FSYNC_EVERYSEC|AOF_FSYNC_ALWAYS|AOF_FSYNC_NO
-	AOFBufferSize  int    `json:"aofbuffersize"`  //持久化策略为AOF_FSYNC_NO时，缓冲区大小
 
 	SlowLogSlowerThan int64 `json:"slowlogslowerthan"` //慢查询阈值
 	SlowLogMaxLen     int   `json:"slowlogmaxlen"`     //慢查询日志最大长度

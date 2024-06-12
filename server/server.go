@@ -21,6 +21,7 @@ type GodisServer struct {
 	AeLoop   *ae.AeLoop
 	logger   *logrus.Logger
 	AOF      *persistence.AOF
+	RDB      *persistence.RDB
 
 	Slowlog           *data.List
 	SlowLogEntryID    int64
@@ -82,9 +83,9 @@ func InitGodisServerInstance(config *conf.Config, logger *logrus.Logger) (*Godis
 			Data:   data.DictCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}),
 			Expire: data.DictCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}),
 		},
-		logger: logger,
-		AOF:    persistence.InitAOF(config, logger),
-
+		logger:            logger,
+		AOF:               persistence.InitAOF(config, logger),
+		RDB:               persistence.InitRDB(config, logger),
 		Slowlog:           data.ListCreate(data.ListType{EqualFunc: data.GStrEqual}),
 		SlowLogSlowerThan: config.SlowLogSlowerThan,
 		SlowLogMaxLen:     config.SlowLogMaxLen,
