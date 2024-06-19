@@ -17,7 +17,7 @@ type AOF struct {
 	Buffer      *bufio.ReadWriter //有缓冲持久化
 	AppendOnly  bool              //是否启用AOF
 	File        *os.File          //AOF文件句柄
-	Appendfsync int               //0:AOF_FSYNC_ALWAYS|1:AOF_FSYNC_EVERYSEC|2:AOF_FSYNC_NO
+	Appendfsync int               //0:always|1:everysec|2:no
 	Command     string            //待持久化的完整命令
 	when        int64             //上次刷盘时间
 }
@@ -35,14 +35,14 @@ func InitAOF(config *conf.Config, logger *logrus.Logger) *AOF {
 	if err != nil {
 		logger.Info("open aof file\r\n")
 	}
-	aof.Buffer = bufio.NewReadWriter(bufio.NewReader(aof.File), bufio.NewWriterSize(aof.File, config.AOFBufferSize))
+	aof.Buffer = bufio.NewReadWriter(bufio.NewReader(aof.File), bufio.NewWriterSize(aof.File, conf.AOF_BUF_BLOCK_SIZE))
 
 	switch config.Appendfsync {
-	case "AOF_FSYNC_ALWAYS":
+	case "always":
 		aof.Appendfsync = 0
-	case "AOF_FSYNC_EVERYSEC":
+	case "everysec":
 		aof.Appendfsync = 1
-	case "AOF_FSYNC_NO":
+	case "no":
 		aof.Appendfsync = 2
 	}
 	return aof

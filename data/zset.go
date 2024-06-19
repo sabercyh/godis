@@ -5,13 +5,13 @@ import (
 )
 
 type ZSet struct {
-	dict     *Dict
+	Dict     *Dict
 	skiplist *SkipList
 }
 
 func NewZset() *ZSet {
 	return &ZSet{
-		dict:     DictCreate(DictType{HashFunc: GStrHash, EqualFunc: GStrEqual}),
+		Dict:     DictCreate(DictType{HashFunc: GStrHash, EqualFunc: GStrEqual}),
 		skiplist: NewSkipList(),
 	}
 }
@@ -34,7 +34,7 @@ func (zs *ZSet) Zadd(args []*Gobj) *ZaddReply {
 		if err != nil {
 			zaddReply.Err = errs.TypeCheckError
 		}
-		memberVal := zs.dict.Get(args[i])
+		memberVal := zs.Dict.Get(args[i])
 		if memberVal != nil {
 			oldScore, _ := memberVal.ParseFloat()
 			// 如果分数和之前相等，则跳出
@@ -42,11 +42,11 @@ func (zs *ZSet) Zadd(args []*Gobj) *ZaddReply {
 				continue
 			}
 			// 如果分数不想等，则更新
-			zs.dict.Set(args[i], args[i+1])
+			zs.Dict.Set(args[i], args[i+1])
 			zs.skiplist.UpdateScore(oldScore, args[i].StrVal(), score)
 			zaddReply.UpdateCount++
 		} else {
-			zs.dict.Set(args[i], args[i+1])
+			zs.Dict.Set(args[i], args[i+1])
 			zs.skiplist.Insert(score, args[i].StrVal())
 			zaddReply.NewCount++
 		}
@@ -60,7 +60,7 @@ func (zs *ZSet) Zcard() uint64 {
 }
 
 func (zs *ZSet) Zscore(member *Gobj) string {
-	obj := zs.dict.Get(member)
+	obj := zs.Dict.Get(member)
 	if obj == nil {
 		return ""
 	}
@@ -121,7 +121,7 @@ TODO: zrank zrevrank的复用
 
 func (zs *ZSet) ZRANK(member *Gobj) (uint64, error) {
 	// 判断是否存在member
-	valObj := zs.dict.Get(member)
+	valObj := zs.Dict.Get(member)
 	if valObj == nil {
 		return 0, errs.CustomError
 	}

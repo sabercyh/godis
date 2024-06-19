@@ -13,16 +13,31 @@ import (
 )
 
 type GodisServer struct {
-	fd      int
-	port    int
-	DB      *db.GodisDB
-	clients map[int]*GodisClient
-	AeLoop  *ae.AeLoop
-	logger  *logrus.Logger
-	AOF     *persistence.AOF
+	fd       int
+	port     int
+	workerID int64
+	DB       *db.GodisDB
+	clients  map[int]*GodisClient
+	AeLoop   *ae.AeLoop
+	logger   *logrus.Logger
+	AOF      *persistence.AOF
+	RDB      *persistence.RDB
+
+	Slowlog           *data.List
+	SlowLogEntryID    int64
+	SlowLogSlowerThan int64
+	SlowLogMaxLen     int
 }
 
 var server *GodisServer // 定义server全局变量
+
+type SlowLogEntry struct {
+	robj     []*data.Gobj
+	argc     int
+	id       int64
+	duration int64
+	time     int64
+}
 
 func AcceptHandler(loop *ae.AeLoop, fd int, extra any) {
 	// 与监听套接字的fd建立起连接，返回监听这个连接的fd
@@ -39,7 +54,7 @@ func AcceptHandler(loop *ae.AeLoop, fd int, extra any) {
 	// register fileEvent
 	server.AeLoop.AddFileEvent(cfd, ae.AE_READABLE, ReadQueryFromClient, client)
 	// 接受连接成功
-	server.logger.Printf("accept client, fd: %v\n", cfd)
+	server.logger.Debugf("accept client, fd: %v\n", cfd)
 }
 
 const EXPIRE_CHECK_COUNT int = 100
@@ -61,14 +76,19 @@ func ServerCron(loop *ae.AeLoop, id int, extra any) {
 func InitGodisServerInstance(config *conf.Config, logger *logrus.Logger) (*GodisServer, error) {
 	// 创建redis服务器实例
 	server = &GodisServer{
-		port:    config.Port,
-		clients: make(map[int]*GodisClient),
+		port:     config.Port,
+		workerID: config.WorkerID,
+		clients:  make(map[int]*GodisClient),
 		DB: &db.GodisDB{
 			Data:   data.DictCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}),
 			Expire: data.DictCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}),
 		},
-		logger: logger,
-		AOF:    persistence.InitAOF(config, logger),
+		logger:            logger,
+		AOF:               persistence.InitAOF(config, logger),
+		RDB:               persistence.InitRDB(config, logger),
+		Slowlog:           data.ListCreate(data.ListType{EqualFunc: data.GStrEqual}),
+		SlowLogSlowerThan: config.SlowLogSlowerThan,
+		SlowLogMaxLen:     config.SlowLogMaxLen,
 	}
 
 	// 根据AOF初始化数据

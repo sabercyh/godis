@@ -125,7 +125,7 @@ func (loop *AeLoop) AddFileEvent(fd int, mask FeType, proc FileProc, extra any) 
 	}
 
 	// Log the operation of adding a file event
-	loop.logger.Printf("ae add file event fd:%v, mask:%v\n", fd, mask)
+	loop.logger.Debugf("ae add file event fd:%v, mask:%v\n", fd, mask)
 }
 
 func (loop *AeLoop) RemoveFileEvent(fd int, mask FeType) {
@@ -142,7 +142,7 @@ func (loop *AeLoop) RemoveFileEvent(fd int, mask FeType) {
 	}
 	// ae ctl
 	loop.FileEvents[getFeKey(fd, mask)] = nil
-	loop.logger.Printf("ae remove file event fd:%v, mask:%v\n", fd, mask)
+	loop.logger.Debugf("ae remove file event fd:%v, mask:%v\n", fd, mask)
 }
 
 func (loop *AeLoop) AddTimeEvent(mask TeType, interval int64, proc TimeProc, extra any) int {
@@ -218,7 +218,7 @@ func (loop *AeLoop) AeWait() (tes []*AeTimeEvent, fes []*AeFileEvent) {
 		loop.logger.Printf("epoll wait warnning: %v\n", err)
 	}
 	if n > 0 {
-		loop.logger.Printf("ae get %v epoll events\n", n)
+		loop.logger.Debugf("ae get %v epoll events\n", n)
 	}
 	// collect file events register file events
 	for i := 0; i < n; i++ {
@@ -264,7 +264,7 @@ func (loop *AeLoop) AeProcess(tes []*AeTimeEvent, fes []*AeFileEvent) {
 	}
 	// 遍历FileEvents
 	if len(fes) > 0 {
-		loop.logger.Println("ae is processing file events")
+		loop.logger.Debugln("ae is processing file events")
 		for _, fe := range fes {
 			fe.proc(loop, fe.fd, fe.extra)
 		}

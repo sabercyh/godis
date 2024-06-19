@@ -10,7 +10,7 @@ import (
 	"github.com/godis/db"
 	"github.com/godis/errs"
 	"github.com/godis/net"
-	"github.com/godis/persistence"
+	"github.com/godis/util"
 	"github.com/sirupsen/logrus"
 )
 
@@ -26,7 +26,6 @@ type GodisClient struct {
 	bulkNum  int
 	bulkLen  int
 	logEntry *logrus.Entry
-	AOF      *persistence.AOF
 }
 
 // 建立连接成功创建client实例
@@ -39,7 +38,6 @@ func InitGodisClientInstance(fd int, server *GodisServer) *GodisClient {
 		logEntry: server.logger.WithFields(logrus.Fields{
 			"clientFD": fd,
 		}),
-		AOF: server.AOF,
 	}
 }
 
@@ -204,7 +202,7 @@ func ProcessQueryBuf(client *GodisClient) error {
 
 func lookupCommand(cmdStr string) *GodisCommand {
 	for _, c := range cmdTable {
-		if c.name == cmdStr {
+		if c.name == strings.ToLower(cmdStr) {
 			return c
 		}
 	}
@@ -213,7 +211,7 @@ func lookupCommand(cmdStr string) *GodisCommand {
 
 func SendReplyToClient(loop *ae.AeLoop, fd int, extra any) {
 	client := extra.(*GodisClient)
-	client.logEntry.Printf("SendReplyToClient, reply len:%v\n", client.reply.Length())
+	client.logEntry.Debugf("SendReplyToClient, reply len:%v\n", client.reply.Length())
 	for client.reply.Length() > 0 {
 		rep := client.reply.First()
 		buf := []byte(rep.Val.StrVal())
@@ -226,7 +224,7 @@ func SendReplyToClient(loop *ae.AeLoop, fd int, extra any) {
 				return
 			}
 			client.sentLen += n
-			client.logEntry.Printf("send %v bytes to client:%v\n", n, client.fd)
+			client.logEntry.Debugf("send %v bytes to client:%v\n", n, client.fd)
 			if client.sentLen == bufLen {
 				client.reply.DelNode(rep)
 				rep.Val.DecrRefCount()
@@ -258,7 +256,7 @@ func (client *GodisClient) AddReplyStr(str string) {
 
 func ProcessCommand(c *GodisClient) {
 	cmdStr := c.args[0].StrVal()
-	c.logEntry.Printf("process command: %v\n", cmdStr)
+	c.logEntry.Debugf("process command: %v\n", cmdStr)
 	if cmdStr == "quit" {
 		freeClient(c)
 		return
@@ -273,21 +271,56 @@ func ProcessCommand(c *GodisClient) {
 		resetClient(c)
 		return
 	}
+
+	start := util.GetUsTime()
 	ok, err := cmd.proc(c)
-	if c.fd == -1 || !c.AOF.AppendOnly {
+	if err != nil {
+		resetClient(c)
 		return
 	}
-	if cmd.isModify && ok && err == nil {
+	// time.Sleep(10 * time.Millisecond)
+	duration := util.GetUsTime() - start
+	// c.logEntry.Infoln(start, util.GetUsTime(), duration)
+	if duration > server.SlowLogSlowerThan {
+		if server.Slowlog.Length() >= server.SlowLogMaxLen {
+			server.Slowlog.RPop()
+		}
+		server.Slowlog.LPush(data.CreateObject(conf.GSLOWLOG, &SlowLogEntry{
+			id: func() int64 {
+				s, err := util.NewSnowFlake(c.logEntry.Logger, server.workerID)
+				if err != nil {
+					c.logEntry.Errorf("NewSnowFlake failed: %v\n", err)
+					return 0
+				}
+				id, err := s.NextID()
+				if err != nil {
+					c.logEntry.Errorf("Generate SnowFlake ID failed: %v\n", err)
+					return 0
+				}
+				return id
+			}(),
+			duration: duration,
+			time:     start,
+			robj:     c.args,
+			argc:     len(c.args),
+		}))
+	}
+
+	if c.fd == -1 || !server.AOF.AppendOnly {
+		return
+	}
+
+	if cmd.isModify && ok {
 		//针对expire命令，需要计算过期的绝对时间
 		if cmd.name == "expire" {
-			err := c.AOF.PersistExpireCommand(c.args)
+			err := server.AOF.PersistExpireCommand(c.args)
 			if err != nil {
-				c.logEntry.Printf("AOF persist failed. Command: %v Appendfsync: %d Err: %v\r\n", c.AOF.Command, c.AOF.Appendfsync, err)
+				c.logEntry.Printf("AOF persist failed. Command: %v Appendfsync: %d Err: %v\r\n", server.AOF.Command, server.AOF.Appendfsync, err)
 			}
 		} else {
-			err := c.AOF.PersistCommand(c.args)
+			err := server.AOF.PersistCommand(c.args)
 			if err != nil {
-				c.logEntry.Printf("AOF persist failed. Command: %v Appendfsync: %d Err: %v\r\n", c.AOF.Command, c.AOF.Appendfsync, err)
+				c.logEntry.Printf("AOF persist failed. Command: %v Appendfsync: %d Err: %v\r\n", server.AOF.Command, server.AOF.Appendfsync, err)
 			}
 		}
 	}
@@ -311,8 +344,8 @@ func ReadQueryFromClient(loop *ae.AeLoop, fd int, extra any) {
 	}
 	// 更新client参数
 	client.queryLen += n
-	client.logEntry.Printf("read %v bytes from client:%v\n", n, client.fd)
-	client.logEntry.Printf("ReadQueryFromClient, queryBuf : %v\n", string(client.queryBuf))
+	client.logEntry.Debugf("read %v bytes from client:%v\n", n, client.fd)
+	client.logEntry.Debugf("ReadQueryFromClient, queryBuf : %v\n", string(client.queryBuf))
 	err = ProcessQueryBuf(client)
 	if err != nil {
 		client.logEntry.Printf("process query buf err: %v\n", err)
@@ -323,7 +356,7 @@ func ReadQueryFromClient(loop *ae.AeLoop, fd int, extra any) {
 
 func (client *GodisClient) ReadQueryFromAOF() {
 	for {
-		n, err := client.AOF.Buffer.Read(client.queryBuf[client.queryLen : client.queryLen+4096])
+		n, err := server.AOF.Buffer.Read(client.queryBuf[client.queryLen : client.queryLen+4096])
 		if err != nil {
 			break
 		}

@@ -6,6 +6,10 @@ func GetMsTime() int64 {
 	return time.Now().UnixNano() / 1e6
 }
 
+func GetUsTime() int64 {
+	return time.Now().UnixNano() / 1e3
+}
+
 func GetTime() int64 {
 	return time.Now().Unix()
 }

@@ -20,9 +20,9 @@ func main() {
 
 	var config conf.Config
 	viper.AddConfigPath("./conf/")
-	viper.SetConfigName("config")
+	viper.SetConfigName("godis-conf")
 	if err := viper.ReadInConfig(); err != nil {
-		log.Printf("read config error: %v\n", err)
+		log.Printf("read godis config error: %v\n", err)
 	}
 
 	if err := viper.Unmarshal(&config); err != nil {

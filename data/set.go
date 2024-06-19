@@ -1,22 +1,33 @@
 package data
 
 type Set struct {
-	Dict *Dict
-	Len  int
+	Dict   *Dict
+	length int
 }
 
 func SetCreate(dictType DictType) *Set {
 	return &Set{
-		Dict: DictCreate(dictType),
-		Len:  0,
+		Dict:   DictCreate(dictType),
+		length: 0,
 	}
 }
 
+func (set *Set) Length() int {
+	return set.length
+}
 func (set *Set) SAdd(member *Gobj) error {
 	if err := set.Dict.SetNx(member, &Gobj{}); err != nil {
 		return err
 	}
-	set.Len++
+	set.length++
+	return nil
+}
+
+func (set *Set) SDel(member *Gobj) error {
+	if err := set.Dict.Delete(member); err != nil {
+		return err
+	}
+	set.length--
 	return nil
 }
 

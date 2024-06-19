@@ -1,0 +1,21 @@
+{
+    "port": 6767,   
+    "workerid":0,
+
+    "rdbcompression":true,
+    "rdbchecksum":true,
+    "dbfilename":"dump.rdb",
+
+    "appendonly":false,
+    "dir":"./persistence/AOF",
+    "appendfilename":"appendonly.aof",
+    "appendfsync":"always",
+
+    "aof-use-rdb-preamble":true,
+    "auto-aof-rewrite-percentage":100,
+    "auto-aof-rewrite-min-size":64,
+    "no-appendfsync-on-rewirete":false,
+
+    "slowlog-log-slower-than":10000,
+    "slowlog-max-len":128
+}

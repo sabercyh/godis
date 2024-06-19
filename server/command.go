@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/godis/conf"
 	"github.com/godis/data"
@@ -76,6 +77,10 @@ var cmdTable = map[string]*GodisCommand{
 	"bitcount": NewGodisCommand("bitcount", bitcountCommand, 2, false),
 	"bitop":    NewGodisCommand("bitop", bitopCommand, 4, false),
 	"bitpos":   NewGodisCommand("bitpos", bitposCommand, 3, false),
+
+	"slowlog": NewGodisCommand("slowlog", slowlogCommand, 2, false),
+	"save":    NewGodisCommand("save", saveCommand, 1, false),
+	"bgsave":  NewGodisCommand("bgsave", bgsaveCommand, 1, false),
 }
 
 func expireIfNeeded(key *data.Gobj) {
@@ -136,7 +141,7 @@ func setCommand(c *GodisClient) (bool, error) {
 	}
 	server.DB.Data.Set(key, val)
 	server.DB.Expire.Delete(key)
-	c.AddReplyStr("+OK\r\n")
+	c.AddReplyStr("OK\r\n")
 	return true, nil
 }
 
@@ -558,7 +563,7 @@ func scardCommand(c *GodisClient) (bool, error) {
 	}
 	set := setObj.Val_.(*data.Set)
 
-	c.AddReplyStr(fmt.Sprintf("(integer) %d\r\n", set.Len))
+	c.AddReplyStr(fmt.Sprintf("(integer) %d\r\n", set.Length()))
 	return true, nil
 }
 func sismemberCommand(c *GodisClient) (bool, error) {
@@ -619,7 +624,7 @@ func sremCommand(c *GodisClient) (bool, error) {
 	}
 	set := setObj.Val_.(*data.Set)
 	member := c.args[2]
-	err := set.Dict.Delete(member)
+	err := set.SDel(member)
 	if err != nil {
 		c.AddReplyStr("(integer) 0\r\n")
 		return false, nil
@@ -1014,5 +1019,70 @@ func bitposCommand(c *GodisClient) (bool, error) {
 		}
 	}
 	c.AddReplyStr(fmt.Sprintf("(integer) %d\r\n", offset))
+	return true, nil
+}
+
+func slowlogCommand(c *GodisClient) (bool, error) {
+	op := c.args[1]
+
+	switch strings.ToLower(op.StrVal()) {
+	case "get":
+		if server.Slowlog.Length() == 0 {
+			c.AddReplyStr("(empty array)\r\n")
+			return false, nil
+		}
+		slowLogEntrys := server.Slowlog.Range(0, server.Slowlog.Length())
+		reply := ""
+		for i := 0; i < len(slowLogEntrys); i++ {
+			entry := slowLogEntrys[i]
+			if entry.Type_ != conf.GSLOWLOG {
+				c.AddReplyStr("-ERR: wrong type\r\n")
+				return false, errs.TypeCheckError
+			}
+			slowLogEntry := entry.Val_.(*SlowLogEntry)
+			reply += fmt.Sprintf("%d) 1) (integer) %d\r\n   2) (integer) %d\r\n   3) (integer) %d\r\n   4) 1)%s\r\n", i+1, slowLogEntry.id, slowLogEntry.time, slowLogEntry.duration, slowLogEntry.robj[0].StrVal())
+			for j := 1; j < slowLogEntry.argc; j++ {
+				reply += fmt.Sprintf("      %d) %s\r\n", j+1, slowLogEntry.robj[j].StrVal())
+			}
+		}
+		c.AddReplyStr(reply)
+	case "len":
+		c.AddReplyStr(fmt.Sprintf("(integer) %d\r\n", server.Slowlog.Length()))
+	case "reset":
+		server.Slowlog.Clear()
+		c.AddReplyStr("OK\r\n")
+	default:
+		c.AddReplyStr("-ERR: Unknown subcommand for slowlog.\r\n")
+		return false, errs.WrongCmdError
+	}
+
+	return true, nil
+}
+
+func saveCommand(c *GodisClient) (bool, error) {
+	if server.RDB.IsRDBSave() {
+		c.AddReplyStr("-ERR: Background save already in progress.\r\n")
+		return false, errs.RDBIsSavingError
+	}
+	if err := server.RDB.Save(server.DB); err != nil {
+		c.AddReplyStr("-ERR: Failed to save rdb file.\r\n")
+		return false, err
+	} else {
+		c.AddReplyStr("OK\r\n")
+	}
+	return true, nil
+}
+
+func bgsaveCommand(c *GodisClient) (bool, error) {
+	if server.RDB.IsRDBSave() {
+		c.AddReplyStr("-ERR: Background save already in progress.\r\n")
+		return false, errs.RDBIsSavingError
+	}
+	if err := server.RDB.BgSave(server.DB); err != nil {
+		c.AddReplyStr("-ERR: Failed to save rdb file.\r\n")
+		return false, err
+	} else {
+		c.AddReplyStr("Background saving started\r\n")
+	}
 	return true, nil
 }
