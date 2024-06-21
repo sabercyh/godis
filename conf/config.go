@@ -1,20 +1,23 @@
 package conf
 
-type RDBOp byte
 type RDBLenType byte
 
 const (
-	RDB_APPNAME       string = "GODIS"
-	RDB_GODIS_VERSION string = "0001"
+	RDB_APPNAME     string = "GODIS"
+	RDB_VERSION     string = "0001"
+	RDB_APPNAME_LEN        = 5
+	RDB_VERSION_LEN        = 4
 
-	RDB_Expire RDBOp = 0xfd
-	RDB_EOF    RDBOp = 0xff
+	RDB_OPCODE_EXPIRETIME = 0xfd
+	RDB_OPCODE_EOF        = 0xff
 )
 
 const (
 	RDB_BUF_BLOCK_SIZE    = 10 * 1024 * 1024
 	AOF_RW_BUF_BLOCK_SIZE = 10 * 1024 * 1024
 	AOF_BUF_BLOCK_SIZE    = 10 * 1024 * 1024
+
+	EXPIRE_CHECK_COUNT int = 100
 )
 
 type CmdType = byte
@@ -41,6 +44,14 @@ const (
 	GDICT    Gtype = 0x04
 	GBIT     Gtype = 0x05
 	GSLOWLOG Gtype = 0x06
+)
+const (
+	RDB_TYPE_STRING = 0x00
+	RDB_TYPE_LIST   = 0x01
+	RDB_TYPE_SET    = 0x02
+	RDB_TYPE_ZSET   = 0x03
+	RDB_TYPE_HASH   = 0x04
+	RDB_TYPE_BITMAP = 0x05
 )
 
 type Gval any

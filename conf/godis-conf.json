@@ -7,7 +7,7 @@
     "dbfilename":"dump.rdb",
 
     "appendonly":false,
-    "dir":"./persistence/AOF",
+    "dir":"./",
     "appendfilename":"appendonly.aof",
     "appendfsync":"always",
 

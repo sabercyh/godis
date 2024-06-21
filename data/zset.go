@@ -41,7 +41,7 @@ func (zs *ZSet) Zadd(args []*Gobj) *ZaddReply {
 			if oldScore == score {
 				continue
 			}
-			// 如果分数不想等，则更新
+			// 如果分数不相等，则更新
 			zs.Dict.Set(args[i], args[i+1])
 			zs.skiplist.UpdateScore(oldScore, args[i].StrVal(), score)
 			zaddReply.UpdateCount++
@@ -50,7 +50,7 @@ func (zs *ZSet) Zadd(args []*Gobj) *ZaddReply {
 			zs.skiplist.Insert(score, args[i].StrVal())
 			zaddReply.NewCount++
 		}
-		zs.skiplist.PrintSkipList()
+		// zs.skiplist.PrintSkipList()
 	}
 	return zaddReply
 }
