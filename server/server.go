@@ -1,12 +1,14 @@
 package server
 
 import (
+	"os"
 	"time"
 
 	"github.com/godis/ae"
 	"github.com/godis/conf"
 	"github.com/godis/data"
 	"github.com/godis/db"
+	"github.com/godis/errs"
 	"github.com/godis/net"
 	"github.com/godis/persistence"
 	"github.com/sirupsen/logrus"
@@ -57,11 +59,9 @@ func AcceptHandler(loop *ae.AeLoop, fd int, extra any) {
 	server.logger.Debugf("accept client, fd: %v\n", cfd)
 }
 
-const EXPIRE_CHECK_COUNT int = 100
-
 // background job, runs every 100ms 用于后台进行淘汰工作
 func ServerCron(loop *ae.AeLoop, id int, extra any) {
-	for i := 0; i < EXPIRE_CHECK_COUNT; i++ {
+	for i := 0; i < conf.EXPIRE_CHECK_COUNT; i++ {
 		entry := server.DB.Expire.RandomGet()
 		if entry == nil {
 			break
@@ -96,6 +96,12 @@ func InitGodisServerInstance(config *conf.Config, logger *logrus.Logger) (*Godis
 		AOFClient := InitGodisClientInstance(-1, server)
 		AOFClient.ReadQueryFromAOF()
 		freeAOFClient(AOFClient)
+	} else {
+		err := server.RDB.Load(server.DB)
+		if err != nil && err != errs.RDBFileNotExistError {
+			server.logger.Error(err)
+			os.Exit(0)
+		}
 	}
 
 	// 创建AE事件循环 调用epoll_create 监听系统IO

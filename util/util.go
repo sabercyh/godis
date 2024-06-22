@@ -1,6 +1,9 @@
 package util
 
-import "time"
+import (
+	"hash/crc64"
+	"time"
+)
 
 func GetMsTime() int64 {
 	return time.Now().UnixNano() / 1e6
@@ -26,4 +29,7 @@ func Abs(x int) int {
 		return x
 	}
 	return -1 * x
+}
+func CheckSumCreate(bytes []byte) uint64 {
+	return crc64.Checksum(bytes, crc64.MakeTable(crc64.ECMA))
 }

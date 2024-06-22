@@ -181,7 +181,7 @@ func expireCommand(c *GodisClient) (bool, error) {
 		c.AddReplyStr("-ERR: wrong type\r\n")
 		return false, errs.TypeCheckError
 	}
-	expire := util.GetMsTime() + (val.IntVal() * 1000)
+	expire := util.GetTime() + val.IntVal()
 	expObj := data.CreateObjectFromInt(expire)
 	server.DB.Expire.Set(key, expObj)
 	expObj.DecrRefCount()

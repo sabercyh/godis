@@ -70,7 +70,7 @@ func (list *List) ForwardIndex(index int) *Node {
 		return nil
 	}
 	node := list.Head
-	for i := 1; i < index; i++ {
+	for i := 0; i < index; i++ {
 		node = node.next
 	}
 	return node

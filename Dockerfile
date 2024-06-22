@@ -7,8 +7,6 @@ RUN apt-get update
 # 安装Go语言环境
 RUN apt-get install -y golang
 
-# 安装其他软件，例如安装nginx
-RUN apt-get install -y nginx
 
 # 创建/app目录
 WORKDIR /app
@@ -19,5 +17,3 @@ COPY . /app
 # 暴露端口6767
 EXPOSE 6767
 
-# 当容器启动时，运行nginx
-CMD ["nginx", "-g", "daemon off;"]

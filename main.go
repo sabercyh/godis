@@ -17,7 +17,8 @@ func main() {
 		TimestampFormat: "2006-01-02 15:04:05", //时间格式
 		FullTimestamp:   true,
 	})
-
+	log.SetReportCaller(true)
+	log.SetLevel(logrus.DebugLevel)
 	var config conf.Config
 	viper.AddConfigPath("./conf/")
 	viper.SetConfigName("godis-conf")
