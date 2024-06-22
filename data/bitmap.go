@@ -1,49 +1,53 @@
 package data
 
 import (
+	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/godis/errs"
 	"github.com/godis/util"
 )
 
+const (
+	MaxOffset = 7
+)
+
 type Bitmap struct {
 	Bytes []byte
-	Top   int
 	Len   int
 }
 
 func BitmapCreate() *Bitmap {
 	return &Bitmap{
 		Bytes: make([]byte, 0),
-		Top:   -1,
 		Len:   0,
 	}
 }
 
-func (bit *Bitmap) SetBit(offset string, val string) error {
+func (bit *Bitmap) SetBit(offsetStr string, val string) error {
 	b, err := bit.getByteValue(val)
 	if err != nil {
 		return err
 	}
-	offsetInt, err := strconv.Atoi(offset)
+	offsetInt, err := strconv.Atoi(offsetStr)
 	if err != nil {
 		return errs.BitOffsetError
 	}
-	if offsetInt < 0 {
-		return errs.BitOffsetError
-	} else if offsetInt >= bit.Len {
-		newBytes := make([]byte, util.Max(2*offsetInt-bit.Len+1, 10))
-		for i := 0; i < len(newBytes); i++ {
-			newBytes[i] = '0'
-		}
-		bit.Bytes = append(bit.Bytes, newBytes...)
-		bit.Len = 2*offsetInt + 1
-	}
-	bit.Bytes[offsetInt] = b
 
-	if b == '1' {
-		bit.Top = offsetInt
+	index := offsetInt / 8
+	offset := MaxOffset - offsetInt%8
+	if index < 0 {
+		return errs.BitOffsetError
+	} else if index >= bit.Len {
+		newBytes := make([]byte, util.Max(2*index-bit.Len+1, 8))
+		bit.Bytes = append(bit.Bytes, newBytes...)
+		bit.Len += len(newBytes)
+	}
+	if b == 1 {
+		bit.Bytes[index] |= 1 << offset
+	} else {
+		bit.Bytes[index] &= 0xff ^ (1 << offset)
 	}
 	return nil
 }
@@ -51,34 +55,47 @@ func (bit *Bitmap) SetBit(offset string, val string) error {
 func (bit *Bitmap) getByteValue(val string) (byte, error) {
 	switch val {
 	case "0":
-		return '0', nil
+		return 0, nil
 	case "1":
-		return '1', nil
+		return 1, nil
 	default:
-		return '0', errs.BitValueError
+		return 0, errs.BitValueError
 	}
 }
 
-func (bit *Bitmap) GetBit(offset string) (byte, error) {
-	offsetInt, err := strconv.Atoi(offset)
+func (bit *Bitmap) GetBit(offsetStr string) (byte, error) {
+	offsetInt, err := strconv.Atoi(offsetStr)
 	if err != nil {
 		return 0, errs.BitOffsetError
 	}
-	if offsetInt < 0 {
+
+	index := offsetInt / 8
+	offset := MaxOffset - offsetInt%8
+	if index < 0 {
 		return 0, errs.BitOffsetError
 	}
-	if offsetInt >= bit.Len {
+	if index >= bit.Len {
 		return '0', nil
 	}
-	b := bit.Bytes[offsetInt]
-	return b, nil
+	b := bit.Bytes[index] >> offset & 1
+
+	switch b {
+	case 0:
+		return '0', nil
+	case 1:
+		return '1', nil
+	default:
+		return 0, errs.BitValueError
+	}
 }
 
 func (bit *Bitmap) BitCount() int {
 	count := 0
 	for i := range bit.Bytes {
-		if bit.Bytes[i] == '1' {
-			count++
+		for j := MaxOffset; j >= 0; j-- {
+			if (bit.Bytes[i] >> j & 1) == 1 {
+				count++
+			}
 		}
 	}
 	return count
@@ -98,59 +115,63 @@ func (bit *Bitmap) BitOp(bit2 *Bitmap, op string) (string, error) {
 }
 
 func (bit *Bitmap) BitOpAND(bit2 *Bitmap) string {
-	bytes := []byte{}
+	bytes := []string{}
 	l, r := 0, 0
-	for ; l <= bit.Top && r <= bit2.Top; l, r = l+1, r+1 {
-		bytes = append(bytes, (bit.Bytes[l]&1)&(bit2.Bytes[r]&1)+'0')
+	for ; l < bit.Len && r < bit2.Len; l, r = l+1, r+1 {
+		bytes = append(bytes, fmt.Sprintf("%08b", (bit.Bytes[l])&(bit2.Bytes[r])))
 	}
-	for ; l <= bit.Top; l++ {
-		bytes = append(bytes, '0')
+	for ; l < bit.Len; l++ {
+		bytes = append(bytes, "00000000")
 	}
-	for ; r <= bit2.Top; r++ {
-		bytes = append(bytes, '0')
+	for ; r < bit2.Len; r++ {
+		bytes = append(bytes, "00000000")
 	}
-	return string(bytes)
+	return strings.Join(bytes, "")
 }
 
 func (bit *Bitmap) BitOpOR(bit2 *Bitmap) string {
-	bytes := []byte{}
+	bytes := []string{}
 	l, r := 0, 0
-	for ; l <= bit.Top && r <= bit2.Top; l, r = l+1, r+1 {
-		bytes = append(bytes, (bit.Bytes[l]&1)|(bit2.Bytes[r]&1)+'0')
+	for ; l < bit.Len && r < bit2.Len; l, r = l+1, r+1 {
+		bytes = append(bytes, fmt.Sprintf("%08b", (bit.Bytes[l])|(bit2.Bytes[r])))
 	}
-	for ; l <= bit.Top; l++ {
-		bytes = append(bytes, bit.Bytes[l])
+	for ; l < bit.Len; l++ {
+		bytes = append(bytes, fmt.Sprintf("%08b", (bit.Bytes[l])))
 	}
-	for ; r <= bit2.Top; r++ {
-		bytes = append(bytes, bit2.Bytes[r])
+	for ; r < bit2.Len; r++ {
+		bytes = append(bytes, fmt.Sprintf("%08b", (bit2.Bytes[r])))
 	}
-	return string(bytes)
+	return strings.Join(bytes, "")
 }
 
 func (bit *Bitmap) BitOpXOR(bit2 *Bitmap) string {
-	bytes := []byte{}
+	bytes := []string{}
 	l, r := 0, 0
-	for ; l <= bit.Top && r <= bit2.Top; l, r = l+1, r+1 {
-		bytes = append(bytes, (bit.Bytes[l]&1)^(bit2.Bytes[r]&1)+'0')
+	for ; l < bit.Len && r < bit2.Len; l, r = l+1, r+1 {
+		bytes = append(bytes, fmt.Sprintf("%08b", (bit.Bytes[l])^(bit2.Bytes[r])))
 	}
-	for ; l <= bit.Top; l++ {
-
-		bytes = append(bytes, bit.Bytes[l])
+	for ; l < bit.Len; l++ {
+		bytes = append(bytes, "11111111")
 	}
-	for ; r <= bit2.Top; r++ {
-		bytes = append(bytes, bit2.Bytes[r])
+	for ; r < bit2.Len; r++ {
+		bytes = append(bytes, "11111111")
 	}
-	return string(bytes)
+	return strings.Join(bytes, "")
 }
 
 func (bit *Bitmap) BitPos(target string) (int, error) {
+	var index int
 	val, err := bit.getByteValue(target)
 	if err != nil {
 		return 0, errs.BitValueError
 	}
 	for i := range bit.Bytes {
-		if bit.Bytes[i] == val {
-			return i, nil
+		for j := MaxOffset; j >= 0; j-- {
+			if (bit.Bytes[i] >> j & 1) != val {
+				index++
+			} else {
+				return index, nil
+			}
 		}
 	}
 	return 0, errs.BitNotFoundError

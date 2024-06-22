@@ -208,6 +208,14 @@ func (rdb *RDB) PersistZSet(db *db.GodisDB, buffer *bytes.Buffer, key, val *data
 
 func (rdb *RDB) PersistBit(db *db.GodisDB, buffer *bytes.Buffer, key, val *data.Gobj) error {
 	rdb.checkExpire(db, buffer, key)
+
+	buffer.WriteByte(conf.RDB_TYPE_BITMAP)
+	rdb.WriteString(buffer, key)
+	bitmap := val.Val_.(*data.Bitmap)
+	rdb.WriteLen(buffer, bitmap.Len)
+	for _, b := range bitmap.Bytes {
+		buffer.WriteByte(b)
+	}
 	return nil
 }
 func (rdb *RDB) checkExpire(db *db.GodisDB, buffer *bytes.Buffer, key *data.Gobj) {
@@ -271,7 +279,7 @@ func (rdb *RDB) load(db *db.GodisDB) error {
 		rdb.log.Errorf("read rdb file %s failed, err:%v", rdb.Filename, err)
 		return err
 	}
-	rdb.log.Debugln(buffer[9:n])
+	// rdb.log.Debugln(buffer[9:n])
 	if rdb.RDBCheckSum {
 		getChecksum := binary.BigEndian.Uint64(buffer[n-8 : n])
 		expectChecksum := util.CheckSumCreate(buffer[:n-8])
@@ -382,7 +390,10 @@ func (rdb *RDB) LoadCommand(buffer []byte, db *db.GodisDB) ([]byte, *data.Gobj, 
 			return nil, nil, errs.RDBLoadFailedError
 		}
 	case conf.RDB_TYPE_BITMAP:
-
+		buffer, key, err = rdb.LoadBitmap(buffer[1:], db)
+		if err != nil {
+			return nil, nil, errs.RDBLoadFailedError
+		}
 	default:
 		return nil, nil, errs.RDBLoadFailedError
 	}
@@ -430,7 +441,6 @@ func (rdb *RDB) LoadList(buffer []byte, db *db.GodisDB) ([]byte, *data.Gobj, err
 	if err != nil {
 		return nil, nil, errs.RDBLoadFailedError
 	}
-	rdb.log.Debugln(length)
 
 	list := data.ListCreate(data.ListType{EqualFunc: data.GStrEqual})
 	var val *data.Gobj
@@ -444,7 +454,6 @@ func (rdb *RDB) LoadList(buffer []byte, db *db.GodisDB) ([]byte, *data.Gobj, err
 	listObj := data.CreateObject(conf.GLIST, list)
 
 	db.Data.Set(key, listObj)
-	rdb.log.Debugln(listObj.Type_)
 	return buffer, key, nil
 }
 
@@ -531,5 +540,27 @@ func (rdb *RDB) LoadZset(buffer []byte, db *db.GodisDB) ([]byte, *data.Gobj, err
 	zsetObj := data.CreateObject(conf.GZSET, zset)
 
 	db.Data.Set(key, zsetObj)
+	return buffer, key, nil
+}
+
+func (rdb *RDB) LoadBitmap(buffer []byte, db *db.GodisDB) ([]byte, *data.Gobj, error) {
+	buffer, key, err := rdb.LoadSDS(buffer)
+	if err != nil {
+		return nil, nil, errs.RDBLoadFailedError
+	}
+
+	buffer, length, err := rdb.LoadNumber(buffer)
+	if err != nil {
+		return nil, nil, errs.RDBLoadFailedError
+	}
+
+	bitmap := data.BitmapCreate()
+	bitmap.Bytes = buffer[:length]
+	bitmap.Len = length
+	buffer = buffer[length:]
+
+	bitmapObj := data.CreateObject(conf.GBIT, bitmap)
+
+	db.Data.Set(key, bitmapObj)
 	return buffer, key, nil
 }
