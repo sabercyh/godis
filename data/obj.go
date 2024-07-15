@@ -30,15 +30,18 @@ func CreateObjectFromInt(val int64) *Gobj {
 	}
 }
 
-func (o *Gobj) IntVal() int64 {
+func (o *Gobj) IntVal() (int, error) {
 	if o.Type_ != conf.GSTR {
-		return 0
+		return 0, nil
 	}
-	val, _ := strconv.ParseInt(o.Val_.(string), 10, 64)
-	return val
+	val, err := strconv.Atoi(o.Val_.(string))
+	if err != nil {
+		return 0, err
+	}
+	return val, nil
 }
 
-func (o *Gobj) int64Val() (int64, error) {
+func (o *Gobj) Int64Val() (int64, error) {
 	if o.Type_ != conf.GSTR {
 		return 0, nil
 	}

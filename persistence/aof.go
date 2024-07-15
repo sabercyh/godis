@@ -79,11 +79,14 @@ func (aof *AOF) PersistExpireCommand(args []*data.Gobj) error {
 	aof.Command += fmt.Sprintf("*%d\r\n", len(args))
 	cmdStr := args[0].StrVal()
 	aof.Command += fmt.Sprintf("$%d\r\n%s\r\n", len(cmdStr), cmdStr)
-
-	expireTime := util.GetTime() + args[2].IntVal()
+	seconds, err := args[2].Int64Val()
+	if err != nil {
+		return err
+	}
+	expireTime := util.GetTime() + seconds
 	// client.logEntry.Printf("now:%d expire:%d\r\n", util.GetTime(), expireTime)
 	aof.Command += fmt.Sprintf("$%d\r\n%d\r\n", len(strconv.FormatInt(expireTime, 10)), expireTime)
-	err := aof.Persist()
+	err = aof.Persist()
 	aof.FreeCommand()
 
 	return err

@@ -18,21 +18,24 @@ func main() {
 		FullTimestamp:   true,
 	})
 	log.SetReportCaller(true)
-	log.SetLevel(logrus.DebugLevel)
+	// log.SetLevel(logrus.DebugLevel)
+
 	var config conf.Config
 	viper.AddConfigPath("./conf/")
 	viper.SetConfigName("godis-conf")
 	if err := viper.ReadInConfig(); err != nil {
-		log.Printf("read godis config error: %v\n", err)
+		log.Errorf("[msg: load godis config failed] [err: %v\r\n]", err)
 	}
-
 	if err := viper.Unmarshal(&config); err != nil {
-		log.Printf("unmarshal config error: %v\n", err)
+		log.Errorf("[msg: unmarshal godis config failed] [err: %v\r\n]", err)
 	}
-	log.Printf("init with config %#v \r\n", config)
+	log.Debugf("[msg: start godis with config] [%#v \r\n]", config)
+
 	server, err := server.InitGodisServerInstance(&config, log)
 	if err != nil {
-		log.Printf("init server error: %v\n", err)
+		log.Errorf("[msg: init server failed] [err: %v\n]", err)
 	}
+
+	log.Info("[msg: Godis is running]")
 	server.AeLoop.AeMain()
 }

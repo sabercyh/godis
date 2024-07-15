@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/godis/conf"
@@ -36,6 +37,7 @@ var cmdTable = map[string]*GodisCommand{
 	"get":    NewGodisCommand("get", getCommand, 2, false),
 	"del":    NewGodisCommand("del", delCommand, 2, true),
 	"exists": NewGodisCommand("exists", existsCommand, 2, false),
+	"incr":   NewGodisCommand("incr", incrCommand, 2, false),
 	"expire": NewGodisCommand("expire", expireCommand, 3, true),
 	// list
 	"lpush":  NewGodisCommand("lpush", lpushCommand, 3, true),
@@ -60,6 +62,7 @@ var cmdTable = map[string]*GodisCommand{
 	"smembers":    NewGodisCommand("smembers", smembersCommand, 2, false),
 	"srandmember": NewGodisCommand("srandmember", srandmemberCommand, 2, false),
 	"srem":        NewGodisCommand("srem", sremCommand, 3, true),
+	"spop":        NewGodisCommand("spop", spopCommand, 2, true),
 	"sinter":      NewGodisCommand("sinter", sinterCommand, 3, false),
 	"sdiff":       NewGodisCommand("sdiff", sdiffCommand, 3, false),
 	"sunion":      NewGodisCommand("sunion", sunionCommand, 3, false),
@@ -88,7 +91,10 @@ func expireIfNeeded(key *data.Gobj) {
 	if entry == nil {
 		return
 	}
-	when := entry.Val.IntVal()
+	when, err := entry.Val.Int64Val()
+	if err != nil {
+		return
+	}
 	if when > util.GetMsTime() {
 		return
 	}
@@ -105,16 +111,14 @@ func getCommand(c *GodisClient) (bool, error) {
 	key := c.args[1]
 	val := findKeyRead(key)
 	if val == nil {
-		// TODO: extract shared.strings
-		c.AddReplyStr("(nil)\r\n")
+		c.AddReplyStr("$-1\r\n")
 		return false, errs.KeyNotExistError
 	} else if val.Type_ != conf.GSTR {
-		// TODO: extract shared.strings
-		c.AddReplyStr("-ERR: wrong type\r\n")
+		c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 		return false, errs.TypeCheckError
 	} else {
 		str := val.StrVal()
-		c.AddReplyStr(fmt.Sprintf("$%d%v\r\n", len(str), str))
+		c.AddReplyStr(fmt.Sprintf("$%d\r\n%v\r\n", len(str), str))
 	}
 	return true, nil
 
@@ -124,10 +128,10 @@ func delCommand(c *GodisClient) (bool, error) {
 	key := c.args[1]
 	err := server.DB.Data.Delete(key)
 	if err != nil {
-		c.AddReplyStr("(integer) 0\r\n")
+		c.AddReplyStr(":0\r\n")
 		return false, errs.DelKeyError
 	}
-	c.AddReplyStr("(integer) 1\r\n")
+	c.AddReplyStr(":1\r\n")
 	return true, nil
 
 }
@@ -135,41 +139,65 @@ func setCommand(c *GodisClient) (bool, error) {
 	key := c.args[1]
 	val := c.args[2]
 	if val.Type_ != conf.GSTR {
-		// TODO: extract shared.strings
-		c.AddReplyStr("-ERR: wrong type\r\n")
+		c.AddReplyStr("-ERR wrong type\r\n")
 		return false, errs.TypeCheckError
 	}
 	server.DB.Data.Set(key, val)
 	server.DB.Expire.Delete(key)
-	c.AddReplyStr("OK\r\n")
+	c.AddReplyStr("+OK\r\n")
 	return true, nil
+}
+
+func incrCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	rawVal := server.DB.Data.Get(key)
+	if rawVal != nil {
+		if rawVal.Type_ != conf.GSTR {
+			c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+		num, err := rawVal.IntVal()
+		num++
+		if err != nil {
+			c.AddReplyStr("-ERR value is not an integer or out of range\r\n")
+			return false, errs.TypeCheckError
+		}
+		rawVal.Val_ = strconv.Itoa(num)
+		c.AddReplyStr(fmt.Sprintf(":%d\r\n", num))
+
+	} else {
+		num := "1"
+		server.DB.Data.Set(key, data.CreateObject(conf.GSTR, num))
+		c.AddReplyStr(fmt.Sprintf(":%s\r\n", num))
+
+	}
+	return true, nil
+
 }
 
 func setnxCommand(c *GodisClient) (bool, error) {
 	key := c.args[1]
 	val := c.args[2]
 	if val.Type_ != conf.GSTR {
-		// TODO: extract shared.strings
-		c.AddReplyStr("-ERR: wrong type\r\n")
+		c.AddReplyStr("-ERR wrong type\r\n")
 		return false, errs.TypeCheckError
 	}
 	err := server.DB.Data.SetNx(key, val)
 	if err != nil {
-		c.AddReplyStr("(integer) 0\r\n")
+		c.AddReplyStr(":0\r\n")
 		return false, errs.KeyExistsError
 	}
-	server.DB.Expire.Delete(key)
-	c.AddReplyStr("(integer) 1\r\n")
+	c.AddReplyStr(":1\r\n")
 	return true, nil
 }
 func existsCommand(c *GodisClient) (bool, error) {
 	key := c.args[1]
 	val := findKeyRead(key)
 	if val == nil {
-		c.AddReplyStr("(integer) 0\r\n")
+		c.AddReplyStr(":0\r\n")
 		return false, errs.KeyNotExistError
 	}
-	c.AddReplyStr("(integer) 1\r\n")
+	c.AddReplyStr(":1\r\n")
 	return true, nil
 
 }
@@ -177,15 +205,18 @@ func expireCommand(c *GodisClient) (bool, error) {
 	key := c.args[1]
 	val := c.args[2]
 	if val.Type_ != conf.GSTR {
-		// TODO: extract shared.strings
-		c.AddReplyStr("-ERR: wrong type\r\n")
+		c.AddReplyStr("-ERR value is not an integer or out of range\r\n")
 		return false, errs.TypeCheckError
 	}
-	expire := util.GetTime() + val.IntVal()
+	seconds, err := val.Int64Val()
+	if err != nil {
+		return false, err
+	}
+	expire := util.GetTime() + seconds
 	expObj := data.CreateObjectFromInt(expire)
 	server.DB.Expire.Set(key, expObj)
 	expObj.DecrRefCount()
-	c.AddReplyStr("+OK\r\n")
+	c.AddReplyStr(":1\r\n")
 	return true, nil
 }
 
@@ -194,7 +225,7 @@ func lpushCommand(c *GodisClient) (bool, error) {
 	listObj := server.DB.Data.Get(key)
 	if listObj != nil {
 		if listObj.Type_ != conf.GLIST {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -203,9 +234,7 @@ func lpushCommand(c *GodisClient) (bool, error) {
 	}
 	list := listObj.Val_.(*data.List)
 	list.LPush(c.args[2])
-	server.DB.Data.Set(key, listObj)
-	server.DB.Expire.Delete(key)
-	c.AddReplyStr(fmt.Sprintf("(integer) %d\r\n", list.Length()))
+	c.AddReplyStr(fmt.Sprintf(":%d\r\n", list.Length()))
 	return true, nil
 }
 func lpopCommand(c *GodisClient) (bool, error) {
@@ -213,7 +242,7 @@ func lpopCommand(c *GodisClient) (bool, error) {
 	listObj := server.DB.Data.Get(key)
 	if listObj != nil {
 		if listObj.Type_ != conf.GLIST {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -222,13 +251,11 @@ func lpopCommand(c *GodisClient) (bool, error) {
 	}
 	list := listObj.Val_.(*data.List)
 	nodeVal := list.LPop()
-	server.DB.Data.Set(key, listObj)
-	server.DB.Expire.Delete(key)
 	if nodeVal == nil {
-		c.AddReplyStr("(nil)\r\n")
+		c.AddReplyStr("$-1\r\n")
 		return false, nil
 	}
-	c.AddReplyStr(fmt.Sprintf("$%d%s\r\n", len(nodeVal.StrVal()), nodeVal.StrVal()))
+	c.AddReplyStr(fmt.Sprintf("$%d\r\n%s\r\n", len(nodeVal.StrVal()), nodeVal.StrVal()))
 	return true, nil
 }
 func rpushCommand(c *GodisClient) (bool, error) {
@@ -236,7 +263,7 @@ func rpushCommand(c *GodisClient) (bool, error) {
 	listObj := server.DB.Data.Get(key)
 	if listObj != nil {
 		if listObj.Type_ != conf.GLIST {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -245,9 +272,7 @@ func rpushCommand(c *GodisClient) (bool, error) {
 	}
 	list := listObj.Val_.(*data.List)
 	list.RPush(c.args[2])
-	server.DB.Data.Set(key, listObj)
-	server.DB.Expire.Delete(key)
-	c.AddReplyStr(fmt.Sprintf("(integer) %d\r\n", list.Length()))
+	c.AddReplyStr(fmt.Sprintf(":%d\r\n", list.Length()))
 	return true, nil
 }
 
@@ -256,7 +281,7 @@ func rpopCommand(c *GodisClient) (bool, error) {
 	listObj := server.DB.Data.Get(key)
 	if listObj != nil {
 		if listObj.Type_ != conf.GLIST {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -265,13 +290,11 @@ func rpopCommand(c *GodisClient) (bool, error) {
 	}
 	list := listObj.Val_.(*data.List)
 	nodeVal := list.RPop()
-	server.DB.Data.Set(key, listObj)
-	server.DB.Expire.Delete(key)
 	if nodeVal == nil {
-		c.AddReplyStr("(nil)\r\n")
+		c.AddReplyStr("$-1\r\n")
 		return false, nil
 	}
-	c.AddReplyStr(fmt.Sprintf("$%d%s\r\n", len(nodeVal.StrVal()), nodeVal.StrVal()))
+	c.AddReplyStr(fmt.Sprintf("$%d\r\n%s\r\n", len(nodeVal.StrVal()), nodeVal.StrVal()))
 	return true, nil
 }
 
@@ -280,7 +303,7 @@ func llenCommand(c *GodisClient) (bool, error) {
 	listObj := server.DB.Data.Get(key)
 	if listObj != nil {
 		if listObj.Type_ != conf.GLIST {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -288,7 +311,7 @@ func llenCommand(c *GodisClient) (bool, error) {
 		server.DB.Data.Set(key, listObj)
 	}
 	list := listObj.Val_.(*data.List)
-	c.AddReplyStr(fmt.Sprintf("(integer) %d\r\n", list.Length()))
+	c.AddReplyStr(fmt.Sprintf(":%d\r\n", list.Length()))
 	return true, nil
 }
 
@@ -297,7 +320,7 @@ func lindexCommand(c *GodisClient) (bool, error) {
 	listObj := server.DB.Data.Get(key)
 	if listObj != nil {
 		if listObj.Type_ != conf.GLIST {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -305,13 +328,17 @@ func lindexCommand(c *GodisClient) (bool, error) {
 		server.DB.Data.Set(key, listObj)
 	}
 	list := listObj.Val_.(*data.List)
-	index := c.args[2].IntVal()
+	index, err := c.args[2].IntVal()
+	if err != nil {
+		c.AddReplyStr("-ERR value is not an integer or out of range\r\n")
+		return false, errs.TypeCheckError
+	}
 	node := list.Index(int(index))
 	if node == nil {
-		c.AddReplyStr("(nil)\r\n")
+		c.AddReplyStr("$-1\r\n")
 		return true, nil
 	}
-	c.AddReplyStr(fmt.Sprintf("$%d%s\r\n", len(node.Val.StrVal()), node.Val.StrVal()))
+	c.AddReplyStr(fmt.Sprintf("$%d\r\n%s\r\n", len(node.Val.StrVal()), node.Val.StrVal()))
 	return true, nil
 }
 
@@ -320,7 +347,7 @@ func lsetCommand(c *GodisClient) (bool, error) {
 	listObj := server.DB.Data.Get(key)
 	if listObj != nil {
 		if listObj.Type_ != conf.GLIST {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -328,10 +355,16 @@ func lsetCommand(c *GodisClient) (bool, error) {
 		server.DB.Data.Set(key, listObj)
 	}
 	list := listObj.Val_.(*data.List)
-	index := c.args[2].IntVal()
-	err := list.Set(int(index), c.args[3])
+
+	index, err := c.args[2].IntVal()
 	if err != nil {
-		c.AddReplyStr("(error) index out of range\r\n")
+		c.AddReplyStr("-ERR value is not an integer or out of range\r\n")
+		return false, errs.TypeCheckError
+	}
+
+	err = list.Set(int(index), c.args[3])
+	if err != nil {
+		c.AddReplyStr("-ERR index out of range\r\n")
 		return false, nil
 	}
 	c.AddReplyStr("+OK\r\n")
@@ -343,7 +376,7 @@ func lremCommand(c *GodisClient) (bool, error) {
 	listObj := server.DB.Data.Get(key)
 	if listObj != nil {
 		if listObj.Type_ != conf.GLIST {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -353,10 +386,10 @@ func lremCommand(c *GodisClient) (bool, error) {
 	list := listObj.Val_.(*data.List)
 	err := list.Rem(c.args[2])
 	if err != nil {
-		c.AddReplyStr("(integer) 0\r\n")
+		c.AddReplyStr(":0\r\n")
 		return false, nil
 	}
-	c.AddReplyStr("(integer) 1\r\n")
+	c.AddReplyStr(":1\r\n")
 	return true, nil
 }
 func lrangeCommand(c *GodisClient) (bool, error) {
@@ -364,7 +397,7 @@ func lrangeCommand(c *GodisClient) (bool, error) {
 	listObj := server.DB.Data.Get(key)
 	if listObj != nil {
 		if listObj.Type_ != conf.GLIST {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -372,15 +405,24 @@ func lrangeCommand(c *GodisClient) (bool, error) {
 		server.DB.Data.Set(key, listObj)
 	}
 	list := listObj.Val_.(*data.List)
-	left, right := int(c.args[2].IntVal()), int(c.args[3].IntVal())
+	left, err := c.args[2].IntVal()
+	if err != nil {
+		c.AddReplyStr("-ERR value is not an integer or out of range\r\n")
+		return false, errs.TypeCheckError
+	}
+	right, err := c.args[3].IntVal()
+	if err != nil {
+		c.AddReplyStr("-ERR value is not an integer or out of range\r\n")
+		return false, errs.TypeCheckError
+	}
 	Gobjs := list.Range(left, right)
 	if len(Gobjs) == 0 {
-		c.AddReplyStr("(empty array)\r\n")
+		c.AddReplyStr("*0\r\n")
 		return true, nil
 	}
-	reply := ""
+	reply := "*" + strconv.Itoa(len(Gobjs)) + "\r\n"
 	for i := range Gobjs {
-		reply += fmt.Sprintf("%d) $%d%v\r\n", i+1, len(Gobjs[i].StrVal()), Gobjs[i].StrVal())
+		reply += fmt.Sprintf("$%d\r\n%s\r\n", len(Gobjs[i].StrVal()), Gobjs[i].StrVal())
 	}
 	c.AddReplyStr(reply)
 	return true, nil
@@ -390,7 +432,7 @@ func hsetCommand(c *GodisClient) (bool, error) {
 	htObj := server.DB.Data.Get(key)
 	if htObj != nil {
 		if htObj.Type_ != conf.GDICT {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -399,9 +441,7 @@ func hsetCommand(c *GodisClient) (bool, error) {
 	}
 	ht := htObj.Val_.(*data.Dict)
 	ht.Set(c.args[2], c.args[3])
-	server.DB.Data.Set(key, htObj)
-	server.DB.Expire.Delete(key)
-	c.AddReplyStr("(integer) 1\r\n")
+	c.AddReplyStr(":1\r\n")
 	return true, nil
 }
 
@@ -410,26 +450,26 @@ func hgetCommand(c *GodisClient) (bool, error) {
 	htObj := findKeyRead(key)
 	if htObj != nil {
 		if htObj.Type_ != conf.GDICT {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
-		c.AddReplyStr("(nil)\r\n")
+		c.AddReplyStr("$-1\r\n")
 		return false, errs.KeyNotExistError
 	}
 	ht := htObj.Val_.(*data.Dict)
 	val := ht.Get(c.args[2])
 	if val != nil {
 		if val.Type_ != conf.GSTR {
-			c.AddReplyStr("-ERR: wrong type\r\n")
+			c.AddReplyStr("-ERR wrong type\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
-		c.AddReplyStr("(nil)\r\n")
+		c.AddReplyStr("$-1\r\n")
 		return false, errs.FieldNotExistError
 	}
 	str := val.StrVal()
-	c.AddReplyStr(fmt.Sprintf("$%d%v\r\n", len(str), str))
+	c.AddReplyStr(fmt.Sprintf("$%d\r\n%v\r\n", len(str), str))
 	return true, nil
 }
 
@@ -438,18 +478,18 @@ func hgetallCommand(c *GodisClient) (bool, error) {
 	htObj := findKeyRead(key)
 	if htObj != nil {
 		if htObj.Type_ != conf.GDICT {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-ERR WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
-		c.AddReplyStr("(nil)\r\n")
+		c.AddReplyStr("*0\r\n")
 		return false, errs.KeyNotExistError
 	}
 	ht := htObj.Val_.(*data.Dict)
 	objs := ht.IterateDict()
-	reply := ""
+	reply := fmt.Sprintf("*%d\r\n", len(objs))
 	for i := range objs {
-		reply += fmt.Sprintf("%d) $%d%v\r\n%d) $%d%v\r\n", 2*i+1, len(objs[i][0].StrVal()), objs[i][0].StrVal(), 2*i+2, len(objs[i][1].StrVal()), objs[i][1].StrVal())
+		reply += fmt.Sprintf("$%d\r\n%v\r\n$%d\r\n%v\r\n", len(objs[i][0].StrVal()), objs[i][0].StrVal(), len(objs[i][1].StrVal()), objs[i][1].StrVal())
 	}
 	c.AddReplyStr(reply)
 	return true, nil
@@ -460,25 +500,25 @@ func hexistsCommand(c *GodisClient) (bool, error) {
 	htObj := findKeyRead(key)
 	if htObj != nil {
 		if htObj.Type_ != conf.GDICT {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-ERR WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
-		c.AddReplyStr("(integer) 0\r\n")
+		c.AddReplyStr(":0\r\n")
 		return false, errs.KeyNotExistError
 	}
 	ht := htObj.Val_.(*data.Dict)
 	val := ht.Get(c.args[2])
 	if val != nil {
 		if val.Type_ != conf.GSTR {
-			c.AddReplyStr("-ERR: wrong type\r\n")
+			c.AddReplyStr("-ERR wrong type\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
-		c.AddReplyStr("(integer) 0\r\n")
+		c.AddReplyStr(":0\r\n")
 		return false, errs.FieldNotExistError
 	}
-	c.AddReplyStr("(integer) 1\r\n")
+	c.AddReplyStr(":1\r\n")
 	return true, nil
 }
 func hdelCommand(c *GodisClient) (bool, error) {
@@ -486,20 +526,20 @@ func hdelCommand(c *GodisClient) (bool, error) {
 	htObj := server.DB.Data.Get(key)
 	if htObj != nil {
 		if htObj.Type_ != conf.GDICT {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-ERR WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
-		c.AddReplyStr("(integer) 0\r\n")
+		c.AddReplyStr(":0\r\n")
 		return false, errs.KeyNotExistError
 	}
 	ht := htObj.Val_.(*data.Dict)
 	err := ht.Delete(c.args[2])
 	if err != nil {
-		c.AddReplyStr("(integer) 0\r\n")
+		c.AddReplyStr(":0\r\n")
 		return false, errs.DelFieldError
 	}
-	c.AddReplyStr("(integer) 1\r\n")
+	c.AddReplyStr(":1\r\n")
 	return true, nil
 }
 
@@ -508,7 +548,7 @@ func saddCommand(c *GodisClient) (bool, error) {
 	setObj := server.DB.Data.Get(key)
 	if setObj != nil {
 		if setObj.Type_ != conf.GSET {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -520,10 +560,10 @@ func saddCommand(c *GodisClient) (bool, error) {
 	server.DB.Data.Set(key, setObj)
 	server.DB.Expire.Delete(key)
 	if err != nil {
-		c.AddReplyStr("(integer) 0\r\n")
+		c.AddReplyStr(":0\r\n")
 		return false, err
 	}
-	c.AddReplyStr("(integer) 1\r\n")
+	c.AddReplyStr(":1\r\n")
 	return true, nil
 }
 
@@ -532,18 +572,18 @@ func smembersCommand(c *GodisClient) (bool, error) {
 	setObj := findKeyRead(key)
 	if setObj != nil {
 		if setObj.Type_ != conf.GSET {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-ERR WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
-		c.AddReplyStr("(integer) 0\r\n")
+		c.AddReplyStr(":0\r\n")
 		return false, errs.KeyNotExistError
 	}
 	set := setObj.Val_.(*data.Set)
 	members := set.Dict.IterateDict()
-	reply := ""
+	reply := fmt.Sprintf("*%d\r\n", len(members))
 	for i := range members {
-		reply += fmt.Sprintf("%d) $%d%v\r\n", i+1, len(members[i][0].StrVal()), members[i][0].StrVal())
+		reply += fmt.Sprintf("$%d\r\n%v\r\n", len(members[i][0].StrVal()), members[i][0].StrVal())
 	}
 	c.AddReplyStr(reply)
 	return true, nil
@@ -554,16 +594,16 @@ func scardCommand(c *GodisClient) (bool, error) {
 	setObj := findKeyRead(key)
 	if setObj != nil {
 		if setObj.Type_ != conf.GSET {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-ERR WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
-		c.AddReplyStr("(integer) 0\r\n")
+		c.AddReplyStr(":0\r\n")
 		return false, errs.KeyNotExistError
 	}
 	set := setObj.Val_.(*data.Set)
 
-	c.AddReplyStr(fmt.Sprintf("(integer) %d\r\n", set.Length()))
+	c.AddReplyStr(fmt.Sprintf(":%d\r\n", set.Length()))
 	return true, nil
 }
 func sismemberCommand(c *GodisClient) (bool, error) {
@@ -571,21 +611,21 @@ func sismemberCommand(c *GodisClient) (bool, error) {
 	setObj := findKeyRead(key)
 	if setObj != nil {
 		if setObj.Type_ != conf.GSET {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-ERR WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
-		c.AddReplyStr("(integer) 0\r\n")
+		c.AddReplyStr(":0\r\n")
 		return false, errs.KeyNotExistError
 	}
 	set := setObj.Val_.(*data.Set)
 	target := c.args[2]
 	member := set.Dict.Find(target)
 	if member == nil {
-		c.AddReplyStr("(integer) 0\r\n")
+		c.AddReplyStr(":0\r\n")
 		return true, nil
 	}
-	c.AddReplyStr("(integer) 1\r\n")
+	c.AddReplyStr(":1\r\n")
 	return true, nil
 }
 func srandmemberCommand(c *GodisClient) (bool, error) {
@@ -593,7 +633,7 @@ func srandmemberCommand(c *GodisClient) (bool, error) {
 	setObj := server.DB.Data.Get(key)
 	if setObj != nil {
 		if setObj.Type_ != conf.GSET {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-ERR WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -603,10 +643,10 @@ func srandmemberCommand(c *GodisClient) (bool, error) {
 	set := setObj.Val_.(*data.Set)
 	member := set.Dict.RandomGet()
 	if member == nil {
-		c.AddReplyStr("(nil)\r\n")
+		c.AddReplyStr("$-1\r\n")
 		return false, nil
 	}
-	c.AddReplyStr(fmt.Sprintf("$%d%v\r\n", len(member.Key.StrVal()), member.Key.StrVal()))
+	c.AddReplyStr(fmt.Sprintf("$%d\r\n%v\r\n", len(member.Key.StrVal()), member.Key.StrVal()))
 	return true, nil
 }
 
@@ -615,7 +655,7 @@ func sremCommand(c *GodisClient) (bool, error) {
 	setObj := server.DB.Data.Get(key)
 	if setObj != nil {
 		if setObj.Type_ != conf.GSET {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -626,10 +666,34 @@ func sremCommand(c *GodisClient) (bool, error) {
 	member := c.args[2]
 	err := set.SDel(member)
 	if err != nil {
-		c.AddReplyStr("(integer) 0\r\n")
+		c.AddReplyStr(":0\r\n")
 		return false, nil
 	}
-	c.AddReplyStr("(integer) 1\r\n")
+	c.AddReplyStr(":1\r\n")
+	return true, nil
+}
+
+func spopCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	setObj := server.DB.Data.Get(key)
+	if setObj != nil {
+		if setObj.Type_ != conf.GSET {
+			c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		setObj = data.CreateObject(conf.GSET, data.SetCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}))
+		server.DB.Data.Set(key, setObj)
+	}
+	set := setObj.Val_.(*data.Set)
+	setVal, err := set.Pop()
+	server.DB.Data.Set(key, setObj)
+	server.DB.Expire.Delete(key)
+	if setVal == nil || err != nil {
+		c.AddReplyStr("$-1\r\n")
+		return false, nil
+	}
+	c.AddReplyStr(fmt.Sprintf("$%d\r\n%s\r\n", len(setVal.StrVal()), setVal.StrVal()))
 	return true, nil
 }
 
@@ -638,7 +702,7 @@ func sinterCommand(c *GodisClient) (bool, error) {
 	setObj1 := findKeyRead(key1)
 	if setObj1 != nil {
 		if setObj1.Type_ != conf.GSET {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-ERR WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -650,7 +714,7 @@ func sinterCommand(c *GodisClient) (bool, error) {
 	setObj2 := findKeyRead(key2)
 	if setObj2 != nil {
 		if setObj2.Type_ != conf.GSET {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-ERR WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -661,12 +725,13 @@ func sinterCommand(c *GodisClient) (bool, error) {
 
 	inter := set1.SInter(set2)
 	if len(inter) == 0 {
-		c.AddReplyStr("(empty array)\r\n")
+		c.AddReplyStr("*0\r\n")
 		return true, nil
 	}
-	reply := ""
+
+	reply := fmt.Sprintf("*%d\r\n", len(inter))
 	for i := range inter {
-		reply += fmt.Sprintf("%d) $%d%v\r\n", i+1, len(inter[i]), inter[i])
+		reply += fmt.Sprintf("$%d\r\n%v\r\n", len(inter[i]), inter[i])
 	}
 	c.AddReplyStr(reply)
 	return true, nil
@@ -677,7 +742,7 @@ func sdiffCommand(c *GodisClient) (bool, error) {
 	setObj1 := findKeyRead(key1)
 	if setObj1 != nil {
 		if setObj1.Type_ != conf.GSET {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-ERR WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -689,7 +754,7 @@ func sdiffCommand(c *GodisClient) (bool, error) {
 	setObj2 := findKeyRead(key2)
 	if setObj2 != nil {
 		if setObj2.Type_ != conf.GSET {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-ERR WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -703,9 +768,10 @@ func sdiffCommand(c *GodisClient) (bool, error) {
 		c.AddReplyStr("(empty array)\r\n")
 		return true, nil
 	}
-	reply := ""
+
+	reply := fmt.Sprintf("*%d\r\n", len(diff))
 	for i := range diff {
-		reply += fmt.Sprintf("%d) $%d%v\r\n", i+1, len(diff[i]), diff[i])
+		reply += fmt.Sprintf("$%d\r\n%v\r\n", len(diff[i]), diff[i])
 	}
 	c.AddReplyStr(reply)
 	return true, nil
@@ -716,7 +782,7 @@ func sunionCommand(c *GodisClient) (bool, error) {
 	setObj1 := findKeyRead(key1)
 	if setObj1 != nil {
 		if setObj1.Type_ != conf.GSET {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-ERR WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -728,7 +794,7 @@ func sunionCommand(c *GodisClient) (bool, error) {
 	setObj2 := findKeyRead(key2)
 	if setObj2 != nil {
 		if setObj2.Type_ != conf.GSET {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-ERR WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -742,9 +808,9 @@ func sunionCommand(c *GodisClient) (bool, error) {
 		c.AddReplyStr("(empty array)\r\n")
 		return true, nil
 	}
-	reply := ""
+	reply := fmt.Sprintf("*%d\r\n", len(union))
 	for i := range union {
-		reply += fmt.Sprintf("%d) $%d%v\r\n", i+1, len(union[i]), union[i])
+		reply += fmt.Sprintf("$%d\r\n%v\r\n", len(union[i]), union[i])
 	}
 	c.AddReplyStr(reply)
 	return true, nil
@@ -754,7 +820,7 @@ func zaddCommand(c *GodisClient) (bool, error) {
 	zsObj := server.DB.Data.Get(key)
 	if zsObj != nil {
 		if zsObj.Type_ != conf.GZSET {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -900,7 +966,7 @@ func setbitCommand(c *GodisClient) (bool, error) {
 	bitObj := server.DB.Data.Get(key)
 	if bitObj != nil {
 		if bitObj.Type_ != conf.GBIT {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-ERR WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -925,7 +991,7 @@ func getbitCommand(c *GodisClient) (bool, error) {
 	bitObj := findKeyRead(key)
 	if bitObj != nil {
 		if bitObj.Type_ != conf.GBIT {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-ERR WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -939,7 +1005,7 @@ func getbitCommand(c *GodisClient) (bool, error) {
 		c.AddReplyStr(fmt.Sprintf("-ERR:%v\r\n", err))
 		return false, err
 	}
-	c.AddReplyStr(fmt.Sprintf("(integer) %s\r\n", string(b)))
+	c.AddReplyStr(fmt.Sprintf(":%s\r\n", string(b)))
 	return true, nil
 }
 
@@ -948,7 +1014,7 @@ func bitcountCommand(c *GodisClient) (bool, error) {
 	bitObj := findKeyRead(key)
 	if bitObj != nil {
 		if bitObj.Type_ != conf.GBIT {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-ERR WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -957,7 +1023,7 @@ func bitcountCommand(c *GodisClient) (bool, error) {
 	}
 	bit := bitObj.Val_.(*data.Bitmap)
 	count := bit.BitCount()
-	c.AddReplyStr(fmt.Sprintf("(integer) %d\r\n", count))
+	c.AddReplyStr(fmt.Sprintf(":%d\r\n", count))
 	return true, nil
 }
 
@@ -967,7 +1033,7 @@ func bitopCommand(c *GodisClient) (bool, error) {
 	bitObj1 := findKeyRead(key1)
 	if bitObj1 != nil {
 		if bitObj1.Type_ != conf.GBIT {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-ERR WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -977,7 +1043,7 @@ func bitopCommand(c *GodisClient) (bool, error) {
 	bitObj2 := findKeyRead(key2)
 	if bitObj2 != nil {
 		if bitObj2.Type_ != conf.GBIT {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-ERR WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -1000,7 +1066,7 @@ func bitposCommand(c *GodisClient) (bool, error) {
 	bitObj := findKeyRead(key)
 	if bitObj != nil {
 		if bitObj.Type_ != conf.GBIT {
-			c.AddReplyStr("-ERR:WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			c.AddReplyStr("-ERR WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 			return false, errs.TypeCheckError
 		}
 	} else {
@@ -1011,24 +1077,24 @@ func bitposCommand(c *GodisClient) (bool, error) {
 	offset, err := bit.BitPos(c.args[2].StrVal())
 	if err != nil {
 		if err == errs.BitNotFoundError {
-			c.AddReplyStr("(integer) -1\r\n")
+			c.AddReplyStr("$-1\r\n")
 			return false, nil
 		} else {
 			c.AddReplyStr(fmt.Sprintf("-ERR:%v\r\n", err))
 			return false, err
 		}
 	}
-	c.AddReplyStr(fmt.Sprintf("(integer) %d\r\n", offset))
+	c.AddReplyStr(fmt.Sprintf(":%d\r\n", offset))
 	return true, nil
 }
 
 func slowlogCommand(c *GodisClient) (bool, error) {
 	op := c.args[1]
-
-	switch strings.ToLower(op.StrVal()) {
+	subcommand := strings.ToLower(op.StrVal())
+	switch subcommand {
 	case "get":
 		if server.Slowlog.Length() == 0 {
-			c.AddReplyStr("(empty array)\r\n")
+			c.AddReplyStr("*0\r\n")
 			return false, nil
 		}
 		slowLogEntrys := server.Slowlog.Range(0, server.Slowlog.Length())
@@ -1036,7 +1102,7 @@ func slowlogCommand(c *GodisClient) (bool, error) {
 		for i := 0; i < len(slowLogEntrys); i++ {
 			entry := slowLogEntrys[i]
 			if entry.Type_ != conf.GSLOWLOG {
-				c.AddReplyStr("-ERR: wrong type\r\n")
+				c.AddReplyStr("-ERR wrong type\r\n")
 				return false, errs.TypeCheckError
 			}
 			slowLogEntry := entry.Val_.(*SlowLogEntry)
@@ -1047,12 +1113,12 @@ func slowlogCommand(c *GodisClient) (bool, error) {
 		}
 		c.AddReplyStr(reply)
 	case "len":
-		c.AddReplyStr(fmt.Sprintf("(integer) %d\r\n", server.Slowlog.Length()))
+		c.AddReplyStr(fmt.Sprintf(":%d\r\n", server.Slowlog.Length()))
 	case "reset":
 		server.Slowlog.Clear()
-		c.AddReplyStr("OK\r\n")
+		c.AddReplyStr("+OK\r\n")
 	default:
-		c.AddReplyStr("-ERR: Unknown subcommand for slowlog.\r\n")
+		c.AddReplyStr(fmt.Sprintf("-ERR unknown subcommand '%s'.\r\n", subcommand))
 		return false, errs.WrongCmdError
 	}
 
@@ -1061,28 +1127,28 @@ func slowlogCommand(c *GodisClient) (bool, error) {
 
 func saveCommand(c *GodisClient) (bool, error) {
 	if server.RDB.IsRDBSave() {
-		c.AddReplyStr("-ERR: Background save already in progress.\r\n")
+		c.AddReplyStr("-ERR Background save already in progress\r\n")
 		return false, errs.RDBIsSavingError
 	}
 	if err := server.RDB.Save(server.DB); err != nil {
-		c.AddReplyStr("-ERR: Failed to save rdb file.\r\n")
+		c.AddReplyStr("-ERR Failed to save rdb file\r\n")
 		return false, err
 	} else {
-		c.AddReplyStr("OK\r\n")
+		c.AddReplyStr("+OK\r\n")
 	}
 	return true, nil
 }
 
 func bgsaveCommand(c *GodisClient) (bool, error) {
 	if server.RDB.IsRDBSave() {
-		c.AddReplyStr("-ERR: Background save already in progress.\r\n")
+		c.AddReplyStr("-ERR Background save already in progress\r\n")
 		return false, errs.RDBIsSavingError
 	}
 	if err := server.RDB.BgSave(server.DB); err != nil {
-		c.AddReplyStr("-ERR: Failed to save rdb file.\r\n")
+		c.AddReplyStr("-ERR Failed to save rdb file\r\n")
 		return false, err
 	} else {
-		c.AddReplyStr("Background saving started\r\n")
+		c.AddReplyStr("+Background saving started\r\n")
 	}
 	return true, nil
 }

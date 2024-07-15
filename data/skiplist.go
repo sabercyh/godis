@@ -119,7 +119,7 @@ func (sl *SkipList) Insert(score float64, member string) {
 			span:    update[i].level[i].span - (rank[0] - rank[i]),
 		}
 		update[i].level[i].forward = node
-		update[i].level[i].span = (rank[0] - rank[i])  + 1
+		update[i].level[i].span = (rank[0] - rank[i]) + 1
 	}
 
 	// Adjust spans for levels above the new node's level.
@@ -350,7 +350,7 @@ func (sl *SkipList) getElememtByRankFromNode(start *skipListNode, rank uint64, l
 	var traversal uint64 = 0
 	for i := level - 1; i >= 0; i-- {
 		// 省略判断
-		for head.level[i].forward != nil && (traversal + head.level[i].span <= rank) {
+		for head.level[i].forward != nil && (traversal+head.level[i].span <= rank) {
 			traversal += head.level[i].span
 			head = head.level[i].forward
 		}

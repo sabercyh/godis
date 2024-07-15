@@ -84,11 +84,11 @@ func (zs *ZSet) Zcount(start, end *Gobj) (int, error) {
 
 func (zs *ZSet) Zrange(start, end *Gobj) ([]string, error) {
 	// 从object中提取 start end
-	s, err := start.int64Val()
+	s, err := start.Int64Val()
 	if err != nil {
 		return nil, errs.TypeCheckError
 	}
-	e, err := end.int64Val()
+	e, err := end.Int64Val()
 	if err != nil {
 		return nil, errs.TypeCheckError
 	}
@@ -103,6 +103,9 @@ func (zs *ZSet) Zrange(start, end *Gobj) ([]string, error) {
 	}
 	if s > e || s > int64(zs.skiplist.length-1) {
 		return nil, errs.OutOfRangeError
+	}
+	if e > int64(zs.skiplist.length-1) {
+		e = int64(zs.skiplist.length - 1)
 	}
 	res := make([]string, e-s+1)
 	sln := zs.skiplist.getElememtByRank(uint64(s) + 1)
