@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/godis/ae"
 	"github.com/godis/conf"
 	"github.com/godis/data"
 	"github.com/godis/db"
@@ -14,6 +13,8 @@ import (
 	"github.com/godis/util"
 	"github.com/sirupsen/logrus"
 )
+
+const sub = 'a' - 'A'
 
 type GodisClient struct {
 	fd       int
@@ -27,6 +28,7 @@ type GodisClient struct {
 	bulkNum  int
 	bulkLen  int
 	logEntry *logrus.Entry
+	closed   bool
 }
 
 func InitGodisClientInstance(fd int, server *GodisServer) *GodisClient {
@@ -38,6 +40,7 @@ func InitGodisClientInstance(fd int, server *GodisServer) *GodisClient {
 		logEntry: server.logger.WithFields(logrus.Fields{
 			"clientFD": fd,
 		}),
+		closed: false,
 	}
 }
 
@@ -123,7 +126,7 @@ func handleBulkBuf(client *GodisClient) (bool, error) {
 		if client.queryBuf[index] != '\r' || client.queryBuf[index+1] != '\n' {
 			return false, errs.WrongCmdError
 		}
-		client.args[len(client.args)-client.bulkNum] = data.CreateObject(conf.GSTR, string(client.queryBuf[:index]))
+		client.args[len(client.args)-client.bulkNum] = data.CreateObject(conf.GSTR, util.BytesToString(client.queryBuf[:index]))
 		client.queryBuf = client.queryBuf[index+2:]
 		client.queryLen -= index + 2
 		client.bulkLen = 0
@@ -168,19 +171,26 @@ func ProcessQueryBuf(client *GodisClient) error {
 
 func lookupCommand(cmdStr string) *GodisCommand {
 	for _, c := range cmdTable {
-		if c.name == cmdStr {
-			return c
+		if len(cmdStr) == len(c.name) {
+			for i := range cmdStr {
+				if cmdStr[i] != c.name[i] && c.name[i]-cmdStr[i] != sub {
+					break
+				}
+				if i == len(c.name)-1 {
+					return c
+				}
+			}
 		}
 	}
 	return nil
 }
 
-func SendReplyToClient(loop *ae.AeLoop, fd int, extra any) {
+func SendReplyToClient(loop *AeLoop, fd int, extra any) {
 	client := extra.(*GodisClient)
-	client.logEntry.Debugf("SendReplyToClient, reply len:%v\n", client.reply.Length())
+	// client.logEntry.Debugf("SendReplyToClient, reply len:%v\n", client.reply.Length())
 	for client.reply.Length() > 0 {
 		rep := client.reply.First()
-		buf := []byte(rep.Val.StrVal())
+		buf := rep.Val.Val_.([]byte)
 		bufLen := len(buf)
 		if client.sentLen < bufLen {
 			n, err := net.Write(fd, buf[client.sentLen:])
@@ -190,7 +200,7 @@ func SendReplyToClient(loop *ae.AeLoop, fd int, extra any) {
 				return
 			}
 			client.sentLen += n
-			client.logEntry.Debugf("send %v bytes to client:%v\n", n, client.fd)
+			// client.logEntry.Debugf("send %v bytes to client:%v\n", n, client.fd)
 			if client.sentLen == bufLen {
 				client.reply.DelNode(rep)
 				rep.Val.DecrRefCount()
@@ -202,28 +212,26 @@ func SendReplyToClient(loop *ae.AeLoop, fd int, extra any) {
 	}
 	if client.reply.Length() == 0 {
 		client.sentLen = 0
-		loop.RemoveFileEvent(fd, ae.AE_WRITABLE)
+		loop.RemoveWriteEvent(fd, AE_WRITABLE)
 	}
 }
 
 func (client *GodisClient) AddReply(o *data.Gobj) {
 	client.reply.Append(o)
-	o.IncrRefCount()
-	server.AeLoop.AddFileEvent(client.fd, ae.AE_WRITABLE, SendReplyToClient, client)
+	server.AeLoop.ModWriteEvent(client.fd, AE_WRITABLE, SendReplyToClient, client)
 }
 
 func (client *GodisClient) AddReplyStr(str string) {
 	if client.fd != -1 {
-		o := data.CreateObject(conf.GSTR, str)
+		bytes := util.StringToBytes(str)
+		o := data.CreateObject(conf.GBYTES, bytes)
 		client.AddReply(o)
-		o.DecrRefCount()
 	}
 }
 
 func ProcessCommand(c *GodisClient) {
 	cmdStr := c.args[0].StrVal()
-	cmdStr = strings.ToLower(cmdStr)
-	c.logEntry.Debugf("process command: %v\n", cmdStr)
+	// c.logEntry.Debugf("process command: %v\n", cmdStr)
 	if cmdStr == "quit" {
 		freeClient(c)
 		return
@@ -250,6 +258,9 @@ func ProcessCommand(c *GodisClient) {
 		if server.Slowlog.Length() >= server.SlowLogMaxLen {
 			server.Slowlog.RPop()
 		}
+		for _, v := range c.args {
+			v.IncrRefCount()
+		}
 		server.Slowlog.LPush(data.CreateObject(conf.GSLOWLOG, &SlowLogEntry{
 			id: func() int64 {
 				s, err := util.NewSnowFlake(c.logEntry.Logger, server.workerID)
@@ -272,6 +283,7 @@ func ProcessCommand(c *GodisClient) {
 	}
 
 	if c.fd == -1 || !server.AOF.AppendOnly {
+		resetClient(c)
 		return
 	}
 
@@ -280,38 +292,27 @@ func ProcessCommand(c *GodisClient) {
 		if cmd.name == "expire" {
 			err := server.AOF.PersistExpireCommand(c.args)
 			if err != nil {
-				c.logEntry.Printf("AOF persist failed. Command: %v Appendfsync: %d Err: %v\r\n", server.AOF.Command, server.AOF.Appendfsync, err)
+				c.logEntry.Errorf("AOF persist failed. Command: %v Appendfsync: %d Err: %v\r\n", server.AOF.Command, server.AOF.Appendfsync, err)
 			}
 		} else {
 			err := server.AOF.PersistCommand(c.args)
 			if err != nil {
-				c.logEntry.Printf("AOF persist failed. Command: %v Appendfsync: %d Err: %v\r\n", server.AOF.Command, server.AOF.Appendfsync, err)
+				c.logEntry.Errorf("AOF persist failed. Command: %v Appendfsync: %d Err: %v\r\n", server.AOF.Command, server.AOF.Appendfsync, err)
 			}
 		}
+		resetClient(c)
 	}
-	resetClient(c)
 }
 
-func ReadQueryFromClient(loop *ae.AeLoop, fd int, extra any) {
+func ReadQueryFromClient(loop *AeLoop, fd int, extra any) {
 	client := extra.(*GodisClient)
-	if len(client.queryBuf)-client.queryLen < conf.GODIS_MAX_BULK {
-		client.queryBuf = append(client.queryBuf, make([]byte, conf.GODIS_MAX_BULK)...)
-	}
-	n, err := net.Read(fd, client.queryBuf[client.queryLen:])
-	if err != nil {
-		client.logEntry.Errorf("client %v read err: %v\n", fd, err)
+
+	if client.closed {
 		freeClient(client)
 		return
 	}
-	if n == 0 {
-		client.logEntry.Infof("connect closed: %v\n", fd)
-		freeClient(client)
-		return
-	}
-	client.queryLen += n
-	client.logEntry.Debugf("read %v bytes from client:%v\n", n, client.fd)
-	client.logEntry.Debugf("ReadQueryFromClient, queryBuf : %v\n", string(client.queryBuf))
-	err = ProcessQueryBuf(client)
+	// client.logEntry.Debugf("ReadQueryFromClient, queryBuf : %v\n", string(client.queryBuf))
+	err := ProcessQueryBuf(client)
 	if err != nil {
 		client.logEntry.Errorf("process query buf err: %v\n", err)
 		freeClient(client)
@@ -345,9 +346,10 @@ func (client *GodisClient) ReadQueryFromAOF() {
 }
 
 func freeArgs(client *GodisClient) {
-	for _, v := range client.args {
-		v.DecrRefCount()
+	for i := range client.args {
+		client.args[i].DecrRefCount()
 	}
+	client.args = client.args[:0]
 }
 
 func freeReplyList(client *GodisClient) {
@@ -360,7 +362,7 @@ func freeReplyList(client *GodisClient) {
 func freeClient(client *GodisClient) {
 	freeArgs(client)
 	delete(server.clients, client.fd)
-	server.AeLoop.RemoveFileEvent(client.fd, ae.AE_READABLE)
+	server.AeLoop.RemoveFileEvent(client.fd, AE_READABLE)
 	freeReplyList(client)
 	net.Close(client.fd)
 }
@@ -369,4 +371,21 @@ func freeAOFClient(client *GodisClient) {
 	freeArgs(client)
 	delete(server.clients, client.fd)
 	freeReplyList(client)
+}
+
+func (client *GodisClient) ReadBuffer() {
+	if len(client.queryBuf)-client.queryLen < conf.GODIS_MAX_BULK {
+		client.queryBuf = append(client.queryBuf, make([]byte, conf.GODIS_MAX_BULK)...)
+	}
+	n, err := net.Read(client.fd, client.queryBuf[client.queryLen:])
+	if err != nil {
+		client.logEntry.Errorf("client %v read err: %v\n", client.fd, err)
+		client.closed = true
+		return
+	}
+	if n == 0 {
+		client.closed = true
+		return
+	}
+	client.queryLen += n
 }

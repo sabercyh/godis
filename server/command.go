@@ -31,6 +31,8 @@ func NewGodisCommand(name string, proc CommandProc, arity int, isModify bool) *G
 }
 
 var cmdTable = map[string]*GodisCommand{
+	// system
+	"ping": NewGodisCommand("ping", pingCommand, 1, false),
 	// string
 	"set":    NewGodisCommand("set", setCommand, 3, true),
 	"setnx":  NewGodisCommand("setnx", setnxCommand, 3, true),
@@ -95,7 +97,7 @@ func expireIfNeeded(key *data.Gobj) {
 	if err != nil {
 		return
 	}
-	if when > util.GetMsTime() {
+	if when > util.GetTime() {
 		return
 	}
 	server.DB.Expire.Delete(key)
@@ -105,6 +107,23 @@ func expireIfNeeded(key *data.Gobj) {
 func findKeyRead(key *data.Gobj) *data.Gobj {
 	expireIfNeeded(key)
 	return server.DB.Data.Get(key)
+}
+
+func pingCommand(c *GodisClient) (bool, error) {
+	c.AddReplyStr("+PONG\r\n")
+	return true, nil
+}
+func setCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	val := c.args[2]
+	if val.Type_ != conf.GSTR {
+		c.AddReplyStr("-ERR wrong type\r\n")
+		return false, errs.TypeCheckError
+	}
+	server.DB.Data.Set(key, val)
+	server.DB.Expire.Delete(key)
+	c.AddReplyStr("+OK\r\n")
+	return true, nil
 }
 
 func getCommand(c *GodisClient) (bool, error) {
@@ -135,18 +154,6 @@ func delCommand(c *GodisClient) (bool, error) {
 	return true, nil
 
 }
-func setCommand(c *GodisClient) (bool, error) {
-	key := c.args[1]
-	val := c.args[2]
-	if val.Type_ != conf.GSTR {
-		c.AddReplyStr("-ERR wrong type\r\n")
-		return false, errs.TypeCheckError
-	}
-	server.DB.Data.Set(key, val)
-	server.DB.Expire.Delete(key)
-	c.AddReplyStr("+OK\r\n")
-	return true, nil
-}
 
 func incrCommand(c *GodisClient) (bool, error) {
 	key := c.args[1]
@@ -168,8 +175,7 @@ func incrCommand(c *GodisClient) (bool, error) {
 	} else {
 		num := "1"
 		server.DB.Data.Set(key, data.CreateObject(conf.GSTR, num))
-		c.AddReplyStr(fmt.Sprintf(":%s\r\n", num))
-
+		c.AddReplyStr(":1\r\n")
 	}
 	return true, nil
 
@@ -199,7 +205,6 @@ func existsCommand(c *GodisClient) (bool, error) {
 	}
 	c.AddReplyStr(":1\r\n")
 	return true, nil
-
 }
 func expireCommand(c *GodisClient) (bool, error) {
 	key := c.args[1]
@@ -215,7 +220,6 @@ func expireCommand(c *GodisClient) (bool, error) {
 	expire := util.GetTime() + seconds
 	expObj := data.CreateObjectFromInt(expire)
 	server.DB.Expire.Set(key, expObj)
-	expObj.DecrRefCount()
 	c.AddReplyStr(":1\r\n")
 	return true, nil
 }
@@ -231,6 +235,7 @@ func lpushCommand(c *GodisClient) (bool, error) {
 	} else {
 		listObj = data.CreateObject(conf.GLIST, data.ListCreate(data.ListType{EqualFunc: data.GStrEqual}))
 		server.DB.Data.Set(key, listObj)
+
 	}
 	list := listObj.Val_.(*data.List)
 	list.LPush(c.args[2])
@@ -246,8 +251,8 @@ func lpopCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		listObj = data.CreateObject(conf.GLIST, data.ListCreate(data.ListType{EqualFunc: data.GStrEqual}))
-		server.DB.Data.Set(key, listObj)
+		c.AddReplyStr("$-1\r\n")
+		return false, nil
 	}
 	list := listObj.Val_.(*data.List)
 	nodeVal := list.LPop()
@@ -269,6 +274,7 @@ func rpushCommand(c *GodisClient) (bool, error) {
 	} else {
 		listObj = data.CreateObject(conf.GLIST, data.ListCreate(data.ListType{EqualFunc: data.GStrEqual}))
 		server.DB.Data.Set(key, listObj)
+
 	}
 	list := listObj.Val_.(*data.List)
 	list.RPush(c.args[2])
@@ -285,8 +291,8 @@ func rpopCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		listObj = data.CreateObject(conf.GLIST, data.ListCreate(data.ListType{EqualFunc: data.GStrEqual}))
-		server.DB.Data.Set(key, listObj)
+		c.AddReplyStr("$-1\r\n")
+		return false, nil
 	}
 	list := listObj.Val_.(*data.List)
 	nodeVal := list.RPop()
@@ -307,8 +313,8 @@ func llenCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		listObj = data.CreateObject(conf.GLIST, data.ListCreate(data.ListType{EqualFunc: data.GStrEqual}))
-		server.DB.Data.Set(key, listObj)
+		c.AddReplyStr(":0\r\n")
+		return true, nil
 	}
 	list := listObj.Val_.(*data.List)
 	c.AddReplyStr(fmt.Sprintf(":%d\r\n", list.Length()))
@@ -324,8 +330,8 @@ func lindexCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		listObj = data.CreateObject(conf.GLIST, data.ListCreate(data.ListType{EqualFunc: data.GStrEqual}))
-		server.DB.Data.Set(key, listObj)
+		c.AddReplyStr("$-1\r\n")
+		return true, nil
 	}
 	list := listObj.Val_.(*data.List)
 	index, err := c.args[2].IntVal()
@@ -380,8 +386,8 @@ func lremCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		listObj = data.CreateObject(conf.GLIST, data.ListCreate(data.ListType{EqualFunc: data.GStrEqual}))
-		server.DB.Data.Set(key, listObj)
+		c.AddReplyStr(":0\r\n")
+		return false, nil
 	}
 	list := listObj.Val_.(*data.List)
 	err := list.Rem(c.args[2])
@@ -401,8 +407,8 @@ func lrangeCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		listObj = data.CreateObject(conf.GLIST, data.ListCreate(data.ListType{EqualFunc: data.GStrEqual}))
-		server.DB.Data.Set(key, listObj)
+		c.AddReplyStr("*0\r\n")
+		return true, nil
 	}
 	list := listObj.Val_.(*data.List)
 	left, err := c.args[2].IntVal()
@@ -438,6 +444,7 @@ func hsetCommand(c *GodisClient) (bool, error) {
 	} else {
 		htObj = data.CreateObject(conf.GDICT, data.DictCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}))
 		server.DB.Data.Set(key, htObj)
+
 	}
 	ht := htObj.Val_.(*data.Dict)
 	ht.Set(c.args[2], c.args[3])
@@ -557,8 +564,6 @@ func saddCommand(c *GodisClient) (bool, error) {
 	}
 	set := setObj.Val_.(*data.Set)
 	err := set.SAdd(c.args[2])
-	server.DB.Data.Set(key, setObj)
-	server.DB.Expire.Delete(key)
 	if err != nil {
 		c.AddReplyStr(":0\r\n")
 		return false, err
@@ -637,8 +642,8 @@ func srandmemberCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		setObj = data.CreateObject(conf.GSET, data.SetCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}))
-		server.DB.Data.Set(key, setObj)
+		c.AddReplyStr("$-1\r\n")
+		return false, nil
 	}
 	set := setObj.Val_.(*data.Set)
 	member := set.Dict.RandomGet()
@@ -659,8 +664,8 @@ func sremCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		setObj = data.CreateObject(conf.GSET, data.SetCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}))
-		server.DB.Data.Set(key, setObj)
+		c.AddReplyStr("$:0\r\n")
+		return false, nil
 	}
 	set := setObj.Val_.(*data.Set)
 	member := c.args[2]
@@ -682,18 +687,16 @@ func spopCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		setObj = data.CreateObject(conf.GSET, data.SetCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}))
-		server.DB.Data.Set(key, setObj)
-	}
-	set := setObj.Val_.(*data.Set)
-	setVal, err := set.Pop()
-	server.DB.Data.Set(key, setObj)
-	server.DB.Expire.Delete(key)
-	if setVal == nil || err != nil {
 		c.AddReplyStr("$-1\r\n")
 		return false, nil
 	}
-	c.AddReplyStr(fmt.Sprintf("$%d\r\n%s\r\n", len(setVal.StrVal()), setVal.StrVal()))
+	set := setObj.Val_.(*data.Set)
+	setVal := set.Pop()
+	if setVal == "" {
+		c.AddReplyStr("$-1\r\n")
+		return false, nil
+	}
+	c.AddReplyStr(fmt.Sprintf("$%d\r\n%s\r\n", len(setVal), setVal))
 	return true, nil
 }
 
