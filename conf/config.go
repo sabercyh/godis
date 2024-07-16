@@ -70,8 +70,8 @@ type Config struct {
 	AppendFilename string `json:"appendfilename"` //AOF文件名
 	Appendfsync    string `json:"appendfsync"`    //AOF持久化策略，AOF_FSYNC_EVERYSEC|AOF_FSYNC_ALWAYS|AOF_FSYNC_NO
 
-	SlowLogSlowerThan int64 `json:"slowloglogslowerthan"` //慢查询阈值
-	SlowLogMaxLen     int   `json:"slowlogmaxlen"`        //慢查询日志最大长度
+	SlowLogSlowerThan int64 `json:"slowlogslowerthan"` //慢查询阈值
+	SlowLogMaxLen     int   `json:"slowlogmaxlen"`     //慢查询日志最大长度
 
 	MaxClients int `json:"maxclients"`
 }

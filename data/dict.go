@@ -227,14 +227,16 @@ func (dict *Dict) Add(key, val *Gobj) error {
 	return nil
 }
 
-func (dict *Dict) Set(key, val *Gobj) {
+func (dict *Dict) Set(key, val *Gobj) int {
 	if err := dict.Add(key, val); err == nil {
-		return
+		return 1
 	}
 	entry := dict.Find(key)
 	entry.Val.DecrRefCount()
 	entry.Val = val
 	entry.Val.IncrRefCount()
+
+	return 0
 }
 
 func (dict *Dict) SetNx(key, val *Gobj) error {

@@ -34,13 +34,7 @@ type GodisServer struct {
 
 var server *GodisServer // 定义server全局变量
 
-type SlowLogEntry struct {
-	robj     []*data.Gobj
-	argc     int
-	id       int64
-	duration int64
-	time     int64
-}
+
 
 func AcceptHandler(loop *AeLoop, fd int, extra any) {
 	// 限制最大连接数

@@ -157,10 +157,8 @@ func (rdb *RDB) PersistList(db *db.GodisDB, buffer *bytes.Buffer, key, val *data
 	// 	rdb.log.Debugln(node.Val.StrVal(), list.Length())
 	// 	rdb.WriteString(buffer, node.Val)
 	// }
-
-	nodes := list.Range(0, list.Length())
-	for _, node := range nodes {
-		rdb.WriteString(buffer, node)
+	for i := 0; i < list.Length(); i++ {
+		rdb.WriteString(buffer, list.Index(i).Val)
 	}
 	return nil
 }

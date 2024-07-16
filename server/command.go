@@ -11,9 +11,10 @@ import (
 	"github.com/godis/util"
 )
 
+const MULTI_ARGS_COMMAND int = -1
+
 type CommandProc func(c *GodisClient) (bool, error)
 
-// do not support bulk command
 type GodisCommand struct {
 	name     string
 	proc     CommandProc
@@ -37,14 +38,14 @@ var cmdTable = map[string]*GodisCommand{
 	"set":    NewGodisCommand("set", setCommand, 3, true),
 	"setnx":  NewGodisCommand("setnx", setnxCommand, 3, true),
 	"get":    NewGodisCommand("get", getCommand, 2, false),
-	"del":    NewGodisCommand("del", delCommand, 2, true),
-	"exists": NewGodisCommand("exists", existsCommand, 2, false),
+	"del":    NewGodisCommand("del", delCommand, MULTI_ARGS_COMMAND, true),
+	"exists": NewGodisCommand("exists", existsCommand, MULTI_ARGS_COMMAND, false),
 	"incr":   NewGodisCommand("incr", incrCommand, 2, false),
 	"expire": NewGodisCommand("expire", expireCommand, 3, true),
 	// list
-	"lpush":  NewGodisCommand("lpush", lpushCommand, 3, true),
+	"lpush":  NewGodisCommand("lpush", lpushCommand, MULTI_ARGS_COMMAND, true),
 	"lpop":   NewGodisCommand("lpop", lpopCommand, 2, true),
-	"rpush":  NewGodisCommand("rpush", rpushCommand, 3, true),
+	"rpush":  NewGodisCommand("rpush", rpushCommand, MULTI_ARGS_COMMAND, true),
 	"rpop":   NewGodisCommand("rpop", rpopCommand, 2, true),
 	"lset":   NewGodisCommand("lset", lsetCommand, 4, true),
 	"lrem":   NewGodisCommand("lrem", lremCommand, 3, true),
@@ -52,30 +53,30 @@ var cmdTable = map[string]*GodisCommand{
 	"lindex": NewGodisCommand("lindex", lindexCommand, 3, false),
 	"lrange": NewGodisCommand("lrange", lrangeCommand, 4, false),
 	// hash
-	"hset":    NewGodisCommand("hset", hsetCommand, 4, true),
+	"hset":    NewGodisCommand("hset", hsetCommand, MULTI_ARGS_COMMAND, true),
 	"hget":    NewGodisCommand("hget", hgetCommand, 3, false),
-	"hdel":    NewGodisCommand("hdel", hdelCommand, 3, true),
+	"hdel":    NewGodisCommand("hdel", hdelCommand, MULTI_ARGS_COMMAND, true),
 	"hexists": NewGodisCommand("hexists", hexistsCommand, 3, false),
 	"hgetall": NewGodisCommand("hgetall", hgetallCommand, 2, false),
 	// set
-	"sadd":        NewGodisCommand("sadd", saddCommand, 3, true),
+	"sadd":        NewGodisCommand("sadd", saddCommand, MULTI_ARGS_COMMAND, true),
 	"scard":       NewGodisCommand("scard", scardCommand, 2, false),
 	"sismember":   NewGodisCommand("sismember", sismemberCommand, 3, false),
 	"smembers":    NewGodisCommand("smembers", smembersCommand, 2, false),
 	"srandmember": NewGodisCommand("srandmember", srandmemberCommand, 2, false),
-	"srem":        NewGodisCommand("srem", sremCommand, 3, true),
+	"srem":        NewGodisCommand("srem", sremCommand, MULTI_ARGS_COMMAND, true),
 	"spop":        NewGodisCommand("spop", spopCommand, 2, true),
 	"sinter":      NewGodisCommand("sinter", sinterCommand, 3, false),
 	"sdiff":       NewGodisCommand("sdiff", sdiffCommand, 3, false),
 	"sunion":      NewGodisCommand("sunion", sunionCommand, 3, false),
 	// zset
-	"zadd":   NewGodisCommand("zadd", zaddCommand, 4, true),
+	"zadd":   NewGodisCommand("zadd", zaddCommand, MULTI_ARGS_COMMAND, true),
 	"zcard":  NewGodisCommand("zcard", zcardCommand, 2, false),
 	"zscore": NewGodisCommand("zscore", zscoreCommand, 3, false),
-	"zrange": NewGodisCommand("zrange", zrangeCommand, 4, false), // ZRANGE key start stop
-	"zrank":  NewGodisCommand("zrank", zrankCommand, 3, false),   // ZRANK key member
-	"zrem":   NewGodisCommand("zrem", zremCommand, 3, true),      // ZREM key member
-	"zcount": NewGodisCommand("zcount", zcountCommand, 4, false), // ZCOUNT key min max
+	"zrange": NewGodisCommand("zrange", zrangeCommand, 4, false),
+	"zrank":  NewGodisCommand("zrank", zrankCommand, 3, false),
+	"zrem":   NewGodisCommand("zrem", zremCommand, MULTI_ARGS_COMMAND, true),
+	"zcount": NewGodisCommand("zcount", zcountCommand, 4, false),
 	// bitmap
 	"setbit":   NewGodisCommand("setbit", setbitCommand, 4, true),
 	"getbit":   NewGodisCommand("getbit", getbitCommand, 3, false),
@@ -144,13 +145,17 @@ func getCommand(c *GodisClient) (bool, error) {
 }
 
 func delCommand(c *GodisClient) (bool, error) {
-	key := c.args[1]
-	err := server.DB.Data.Delete(key)
-	if err != nil {
-		c.AddReplyStr(":0\r\n")
-		return false, errs.DelKeyError
+	var key *data.Gobj
+	count := 0
+	for i := range c.args {
+		key = c.args[i]
+		err := server.DB.Data.Delete(key)
+		if err != nil {
+			continue
+		}
+		count++
 	}
-	c.AddReplyStr(":1\r\n")
+	c.AddReplyStr(fmt.Sprintf(":%d\r\n", count))
 	return true, nil
 
 }
@@ -197,13 +202,16 @@ func setnxCommand(c *GodisClient) (bool, error) {
 	return true, nil
 }
 func existsCommand(c *GodisClient) (bool, error) {
-	key := c.args[1]
-	val := findKeyRead(key)
-	if val == nil {
-		c.AddReplyStr(":0\r\n")
-		return false, errs.KeyNotExistError
+	var key *data.Gobj
+	count := 0
+	for i := range c.args {
+		key = c.args[i]
+		val := findKeyRead(key)
+		if val != nil {
+			count++
+		}
 	}
-	c.AddReplyStr(":1\r\n")
+	c.AddReplyStr(fmt.Sprintf(":%d\r\n", count))
 	return true, nil
 }
 func expireCommand(c *GodisClient) (bool, error) {
@@ -238,7 +246,10 @@ func lpushCommand(c *GodisClient) (bool, error) {
 
 	}
 	list := listObj.Val_.(*data.List)
-	list.LPush(c.args[2])
+
+	for i := 2; i < len(c.args); i++ {
+		list.LPush(c.args[i])
+	}
 	c.AddReplyStr(fmt.Sprintf(":%d\r\n", list.Length()))
 	return true, nil
 }
@@ -277,7 +288,9 @@ func rpushCommand(c *GodisClient) (bool, error) {
 
 	}
 	list := listObj.Val_.(*data.List)
-	list.RPush(c.args[2])
+	for i := 2; i < len(c.args); i++ {
+		list.RPush(c.args[i])
+	}
 	c.AddReplyStr(fmt.Sprintf(":%d\r\n", list.Length()))
 	return true, nil
 }
@@ -421,19 +434,22 @@ func lrangeCommand(c *GodisClient) (bool, error) {
 		c.AddReplyStr("-ERR value is not an integer or out of range\r\n")
 		return false, errs.TypeCheckError
 	}
-	Gobjs := list.Range(left, right)
-	if len(Gobjs) == 0 {
+	reply := list.RangeVal(left, right)
+	if len(reply) == 0 {
 		c.AddReplyStr("*0\r\n")
 		return true, nil
 	}
-	reply := "*" + strconv.Itoa(len(Gobjs)) + "\r\n"
-	for i := range Gobjs {
-		reply += fmt.Sprintf("$%d\r\n%s\r\n", len(Gobjs[i].StrVal()), Gobjs[i].StrVal())
-	}
-	c.AddReplyStr(reply)
+
+	c.AddReplyBytes(reply)
 	return true, nil
 }
 func hsetCommand(c *GodisClient) (bool, error) {
+	if len(c.args[2:])%2 != 0 {
+		c.AddReplyStr("-ERR wrong number of arguments for 'hset' command\r\n")
+		return false, errs.ParamsCheckError
+	}
+
+	var count int
 	key := c.args[1]
 	htObj := server.DB.Data.Get(key)
 	if htObj != nil {
@@ -447,8 +463,12 @@ func hsetCommand(c *GodisClient) (bool, error) {
 
 	}
 	ht := htObj.Val_.(*data.Dict)
-	ht.Set(c.args[2], c.args[3])
-	c.AddReplyStr(":1\r\n")
+
+	for i := 2; i < len(c.args); i += 2 {
+		count += ht.Set(c.args[i], c.args[i+1])
+	}
+
+	c.AddReplyStr(fmt.Sprintf(":%d\r\n", count))
 	return true, nil
 }
 
@@ -494,7 +514,7 @@ func hgetallCommand(c *GodisClient) (bool, error) {
 	}
 	ht := htObj.Val_.(*data.Dict)
 	objs := ht.IterateDict()
-	reply := fmt.Sprintf("*%d\r\n", len(objs))
+	reply := fmt.Sprintf("*%d\r\n", len(objs)*2)
 	for i := range objs {
 		reply += fmt.Sprintf("$%d\r\n%v\r\n$%d\r\n%v\r\n", len(objs[i][0].StrVal()), objs[i][0].StrVal(), len(objs[i][1].StrVal()), objs[i][1].StrVal())
 	}
@@ -529,6 +549,8 @@ func hexistsCommand(c *GodisClient) (bool, error) {
 	return true, nil
 }
 func hdelCommand(c *GodisClient) (bool, error) {
+	var count int
+
 	key := c.args[1]
 	htObj := server.DB.Data.Get(key)
 	if htObj != nil {
@@ -541,12 +563,16 @@ func hdelCommand(c *GodisClient) (bool, error) {
 		return false, errs.KeyNotExistError
 	}
 	ht := htObj.Val_.(*data.Dict)
-	err := ht.Delete(c.args[2])
-	if err != nil {
-		c.AddReplyStr(":0\r\n")
-		return false, errs.DelFieldError
+
+	for i := 2; i < len(c.args); i++ {
+		err := ht.Delete(c.args[i])
+		if err != nil {
+			continue
+		}
+		count++
 	}
-	c.AddReplyStr(":1\r\n")
+
+	c.AddReplyStr(fmt.Sprintf(":%d\r\n", count))
 	return true, nil
 }
 
@@ -563,12 +589,12 @@ func saddCommand(c *GodisClient) (bool, error) {
 		server.DB.Data.Set(key, setObj)
 	}
 	set := setObj.Val_.(*data.Set)
-	err := set.SAdd(c.args[2])
-	if err != nil {
-		c.AddReplyStr(":0\r\n")
-		return false, err
+
+	for i := 2; i < len(c.args); i++ {
+		set.SAdd(c.args[i])
 	}
-	c.AddReplyStr(":1\r\n")
+	c.AddReplyStr(fmt.Sprintf(":%d\r\n", set.Length()))
+
 	return true, nil
 }
 
@@ -1100,21 +1126,9 @@ func slowlogCommand(c *GodisClient) (bool, error) {
 			c.AddReplyStr("*0\r\n")
 			return false, nil
 		}
-		slowLogEntrys := server.Slowlog.Range(0, server.Slowlog.Length())
-		reply := ""
-		for i := 0; i < len(slowLogEntrys); i++ {
-			entry := slowLogEntrys[i]
-			if entry.Type_ != conf.GSLOWLOG {
-				c.AddReplyStr("-ERR wrong type\r\n")
-				return false, errs.TypeCheckError
-			}
-			slowLogEntry := entry.Val_.(*SlowLogEntry)
-			reply += fmt.Sprintf("%d) 1) (integer) %d\r\n   2) (integer) %d\r\n   3) (integer) %d\r\n   4) 1)%s\r\n", i+1, slowLogEntry.id, slowLogEntry.time, slowLogEntry.duration, slowLogEntry.robj[0].StrVal())
-			for j := 1; j < slowLogEntry.argc; j++ {
-				reply += fmt.Sprintf("      %d) %s\r\n", j+1, slowLogEntry.robj[j].StrVal())
-			}
-		}
-		c.AddReplyStr(reply)
+		reply := server.Slowlog.RangeSlowlog()
+
+		c.AddReplyBytes(reply)
 	case "len":
 		c.AddReplyStr(fmt.Sprintf(":%d\r\n", server.Slowlog.Length()))
 	case "reset":
