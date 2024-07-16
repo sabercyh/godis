@@ -201,7 +201,6 @@ func (dict *Dict) AddRaw(key *Gobj) *Entry {
 	if idx == -1 {
 		return nil
 	}
-	// add key & return entry
 	var ht *htable
 	if dict.isRehashing() {
 		ht = dict.hts[1]
@@ -235,7 +234,7 @@ func (dict *Dict) Set(key, val *Gobj) {
 	entry := dict.Find(key)
 	entry.Val.DecrRefCount()
 	entry.Val = val
-	val.IncrRefCount()
+	entry.Val.IncrRefCount()
 }
 
 func (dict *Dict) SetNx(key, val *Gobj) error {
@@ -257,7 +256,6 @@ func (dict *Dict) Delete(key *Gobj) error {
 	if dict.isRehashing() {
 		dict.rehashStep()
 	}
-	// find key & delete & decr refcount
 	h := dict.HashFunc(key)
 	for i := 0; i <= 1; i++ {
 		idx := h & dict.hts[i].mask
@@ -271,6 +269,7 @@ func (dict *Dict) Delete(key *Gobj) error {
 					prev.next = e.next
 				}
 				freeEntry(e)
+				dict.hts[i].used--
 				return nil
 			}
 			prev = e
@@ -280,7 +279,6 @@ func (dict *Dict) Delete(key *Gobj) error {
 			break
 		}
 	}
-	// key doesnt exist
 	return errs.KeyNotExistError
 }
 
@@ -325,11 +323,9 @@ func (dict *Dict) RandomGet() *Entry {
 	if dict.isRehashing() {
 		dict.rehashStep()
 		if dict.hts[1] != nil && dict.hts[1].used > dict.hts[0].used {
-			// simplify the logic, random get in the bigger table
 			t = 1
 		}
 	}
-	// random slot
 	idx := rand.Int63n(dict.hts[t].size)
 	cnt := 0
 	for dict.hts[t].table[idx] == nil && cnt < 1000 {
@@ -339,7 +335,6 @@ func (dict *Dict) RandomGet() *Entry {
 	if dict.hts[t].table[idx] == nil {
 		return nil
 	}
-	// random entry
 	var listLen int64
 	p := dict.hts[t].table[idx]
 	for p != nil {
@@ -352,6 +347,49 @@ func (dict *Dict) RandomGet() *Entry {
 		p = p.next
 	}
 	return p
+}
+
+func (dict *Dict) RandomGetAndDelete() string {
+	if dict.hts[0] == nil {
+		return ""
+	}
+	idx := rand.Int63n(dict.hts[0].size)
+	cnt := 0
+	for dict.hts[0].table[idx] == nil && cnt < 512 {
+		idx = rand.Int63n(dict.hts[0].size)
+		cnt++
+	}
+	if dict.hts[0].table[idx] == nil {
+		return ""
+	}
+	var listLen int64
+	p := dict.hts[0].table[idx]
+	for p != nil {
+		listLen++
+		p = p.next
+	}
+
+	listIdx := rand.Int63n(listLen)
+	p = dict.hts[0].table[idx]
+
+	var member string
+	if listIdx == 0 {
+		dict.hts[0].table[idx] = p.next
+		member = p.Key.StrVal()
+		freeEntry(p)
+		dict.hts[0].used--
+	} else {
+		for i := int64(0); i < listIdx-1; i++ {
+			p = p.next
+		}
+		member = p.next.Key.StrVal()
+		freeEntry(p.next)
+
+		p.next = p.next.next
+		dict.hts[0].used--
+	}
+
+	return member
 }
 
 func (dict *Dict) IterateDict() [][2]*Gobj {

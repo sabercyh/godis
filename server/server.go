@@ -4,7 +4,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/godis/ae"
 	"github.com/godis/conf"
 	"github.com/godis/data"
 	"github.com/godis/db"
@@ -20,7 +19,7 @@ type GodisServer struct {
 	workerID int64
 	DB       *db.GodisDB
 	clients  map[int]*GodisClient
-	AeLoop   *ae.AeLoop
+	AeLoop   *AeLoop
 	logger   *logrus.Logger
 	AOF      *persistence.AOF
 	RDB      *persistence.RDB
@@ -29,6 +28,8 @@ type GodisServer struct {
 	SlowLogEntryID    int64
 	SlowLogSlowerThan int64
 	SlowLogMaxLen     int
+
+	MaxClients int
 }
 
 var server *GodisServer // 定义server全局变量
@@ -41,20 +42,25 @@ type SlowLogEntry struct {
 	time     int64
 }
 
-func AcceptHandler(loop *ae.AeLoop, fd int, extra any) {
+func AcceptHandler(loop *AeLoop, fd int, extra any) {
+	// 限制最大连接数
+	if len(server.clients) >= server.MaxClients {
+		server.logger.Infoln("exceed max clients len")
+		return
+	}
+
 	cfd, err := net.Accept(fd)
 	if err != nil {
-		server.logger.Printf("accept err: %v\n", err)
+		server.logger.Errorf("accept err: %v\n", err)
 		return
 	}
 	client := InitGodisClientInstance(cfd, server)
-	// TODO: check max clients limit
 	server.clients[cfd] = client
-	server.AeLoop.AddFileEvent(cfd, ae.AE_READABLE, ReadQueryFromClient, client)
+	server.AeLoop.AddReadEvent(cfd, AE_READABLE, ReadQueryFromClient, client)
 	server.logger.Debugf("accept client, fd: %v\n", cfd)
 }
 
-func ServerCron(loop *ae.AeLoop, id int, extra any) {
+func ServerCron(loop *AeLoop, id int, extra any) {
 	for i := 0; i < conf.EXPIRE_CHECK_COUNT; i++ {
 		entry := server.DB.Expire.RandomGet()
 		if entry == nil {
@@ -88,6 +94,7 @@ func InitGodisServerInstance(config *conf.Config, logger *logrus.Logger) (*Godis
 		Slowlog:           data.ListCreate(data.ListType{EqualFunc: data.GStrEqual}),
 		SlowLogSlowerThan: config.SlowLogSlowerThan,
 		SlowLogMaxLen:     config.SlowLogMaxLen,
+		MaxClients:        config.MaxClients,
 	}
 
 	if server.AOF.AppendOnly {
@@ -103,14 +110,14 @@ func InitGodisServerInstance(config *conf.Config, logger *logrus.Logger) (*Godis
 	}
 
 	var err error
-	if server.AeLoop, err = ae.AeLoopCreate(logger); err != nil {
+	if server.AeLoop, err = AeLoopCreate(logger); err != nil {
 		return nil, err
 	}
 	if server.fd, err = net.TcpServer(server.port, server.logger); err != nil {
 		server.logger.Println("server start fail")
 	}
-	server.AeLoop.AddFileEvent(server.fd, ae.AE_READABLE, AcceptHandler, nil)
-	server.AeLoop.AddTimeEvent(ae.AE_NORMAL, 100, ServerCron, nil)
+	server.AeLoop.AddReadEvent(server.fd, AE_READABLE, AcceptHandler, nil)
+	server.AeLoop.AddTimeEvent(AE_NORMAL, 100, ServerCron, nil)
 	server.logger.Println("godis server is up.")
 	return server, nil
 }

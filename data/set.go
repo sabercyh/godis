@@ -31,17 +31,13 @@ func (set *Set) SDel(member *Gobj) error {
 	return nil
 }
 
-func (set *Set) Pop() (*Gobj, error) {
-	entry := set.Dict.RandomGet()
-	if entry == nil {
-		return nil, nil
-	}
-	member := entry.Key
-	if err := set.Dict.Delete(entry.Key); err != nil {
-		return nil, err
+func (set *Set) Pop() string {
+	member := set.Dict.RandomGetAndDelete()
+	if member == "" {
+		return ""
 	}
 	set.length--
-	return member, nil
+	return member
 }
 
 func (set *Set) SInter(set1 *Set) []string {

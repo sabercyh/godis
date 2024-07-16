@@ -209,7 +209,7 @@ func (rdb *RDB) PersistZSet(db *db.GodisDB, buffer *bytes.Buffer, key, val *data
 func (rdb *RDB) PersistBit(db *db.GodisDB, buffer *bytes.Buffer, key, val *data.Gobj) error {
 	rdb.checkExpire(db, buffer, key)
 
-	buffer.WriteByte(conf.RDB_TYPE_BITMAP)
+	buffer.WriteByte(conf.RDB_TYPE_BIT)
 	rdb.WriteString(buffer, key)
 	bitmap := val.Val_.(*data.Bitmap)
 	rdb.WriteLen(buffer, bitmap.Len)
@@ -394,7 +394,7 @@ func (rdb *RDB) LoadCommand(buffer []byte, db *db.GodisDB) ([]byte, *data.Gobj, 
 		if err != nil {
 			return nil, nil, errs.RDBLoadFailedError
 		}
-	case conf.RDB_TYPE_BITMAP:
+	case conf.RDB_TYPE_BIT:
 		buffer, key, err = rdb.LoadBitmap(buffer[1:], db)
 		if err != nil {
 			return nil, nil, errs.RDBLoadFailedError

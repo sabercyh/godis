@@ -16,6 +16,8 @@
     "auto-aof-rewrite-min-size":64,
     "no-appendfsync-on-rewirete":false,
 
-    "slowlog-log-slower-than":10000,
-    "slowlog-max-len":128
+    "slowloglogslowerthan":10000,
+    "slowlogmaxlen":128,
+
+    "maxclients":128
 }

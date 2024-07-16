@@ -55,6 +55,7 @@ func (list *List) Set(index int, val *Gobj) error {
 		return errs.OutOfRangeError
 	}
 	node.Val = val
+	node.Val.IncrRefCount()
 	return nil
 }
 
@@ -140,6 +141,7 @@ func (list *List) Append(val *Gobj) {
 func (list *List) LPush(val *Gobj) {
 	var n Node
 	n.Val = val
+	n.Val.IncrRefCount()
 	if list.Head == nil {
 		list.Head = &n
 		list.Tail = &n
@@ -163,6 +165,7 @@ func (list *List) LPop() *Gobj {
 func (list *List) RPush(val *Gobj) {
 	var n Node
 	n.Val = val
+	n.Val.IncrRefCount()
 	if list.Head == nil {
 		list.Head = &n
 		list.Tail = &n

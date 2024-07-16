@@ -44,6 +44,7 @@ const (
 	GDICT    Gtype = 0x04
 	GBIT     Gtype = 0x05
 	GSLOWLOG Gtype = 0x06
+	GBYTES   Gtype = 0x06
 )
 const (
 	RDB_TYPE_STRING = 0x00
@@ -51,7 +52,7 @@ const (
 	RDB_TYPE_SET    = 0x02
 	RDB_TYPE_ZSET   = 0x03
 	RDB_TYPE_HASH   = 0x04
-	RDB_TYPE_BITMAP = 0x05
+	RDB_TYPE_BIT    = 0x05
 )
 
 type Gval any
@@ -69,6 +70,8 @@ type Config struct {
 	AppendFilename string `json:"appendfilename"` //AOF文件名
 	Appendfsync    string `json:"appendfsync"`    //AOF持久化策略，AOF_FSYNC_EVERYSEC|AOF_FSYNC_ALWAYS|AOF_FSYNC_NO
 
-	SlowLogSlowerThan int64 `json:"slowlogslowerthan"` //慢查询阈值
-	SlowLogMaxLen     int   `json:"slowlogmaxlen"`     //慢查询日志最大长度
+	SlowLogSlowerThan int64 `json:"slowloglogslowerthan"` //慢查询阈值
+	SlowLogMaxLen     int   `json:"slowlogmaxlen"`        //慢查询日志最大长度
+
+	MaxClients int `json:"maxclients"`
 }
