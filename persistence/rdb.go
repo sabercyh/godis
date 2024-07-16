@@ -222,9 +222,14 @@ func (rdb *RDB) checkExpire(db *db.GodisDB, buffer *bytes.Buffer, key *data.Gobj
 	if expireKey := db.Expire.Get(key); expireKey != nil {
 		buffer.WriteByte(byte(conf.RDB_OPCODE_EXPIRETIME))
 
-		expireTime := make([]byte, 8)
-		binary.BigEndian.PutUint64(expireTime, uint64(expireKey.IntVal()))
-		buffer.Write(expireTime)
+		expireTimeSlice := make([]byte, 8)
+		expireTime, err := expireKey.IntVal()
+		if err != nil {
+			rdb.log.Errorf("get expire key %s failed, err:%v", key.StrVal(), err)
+			return
+		}
+		binary.BigEndian.PutUint64(expireTimeSlice, uint64(expireTime))
+		buffer.Write(expireTimeSlice)
 	}
 }
 func (rdb *RDB) WriteString(buffer *bytes.Buffer, obj *data.Gobj) (bool, error) {
