@@ -1175,7 +1175,7 @@ func bitopCommand(c *GodisClient) (bool, error) {
 		c.AddReplyStr(fmt.Sprintf("-ERR:%v\r\n", err))
 		return false, err
 	}
-	c.AddReplyStr(fmt.Sprintf(":%d\r\n", res))
+	c.AddReplyStr(fmt.Sprintf(":%b\r\n", res))
 	return true, nil
 }
 func bitposCommand(c *GodisClient) (bool, error) {
@@ -1187,8 +1187,12 @@ func bitposCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		bitObj = data.CreateObject(conf.GBIT, data.BitmapCreate())
-		server.DB.Data.Set(key, bitObj)
+		if c.args[2].StrVal() == "0" {
+			c.AddReplyStr(":0\r\n")
+		} else {
+			c.AddReplyStr(":-1\r\n")
+		}
+		return false, nil
 	}
 	bit := bitObj.Val_.(*data.Bitmap)
 	offset, err := bit.BitPos(c.args[2].StrVal())

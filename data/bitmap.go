@@ -80,14 +80,7 @@ func (bit *Bitmap) GetBit(offsetStr string) (byte, error) {
 	}
 	b := bit.Bytes[index] >> offset & 1
 
-	switch b {
-	case 0:
-		return '0', nil
-	case 1:
-		return '1', nil
-	default:
-		return 0, errs.BitValueError
-	}
+	return b, nil
 }
 
 func (bit *Bitmap) BitCount() int {
@@ -127,7 +120,7 @@ func (bit *Bitmap) BitOpAND(bit2 *Bitmap) uint64 {
 	for ; r < bit2.Len; r++ {
 		bytes = append(bytes, 0)
 	}
-
+	
 	return binary.BigEndian.Uint64(bytes)
 }
 
