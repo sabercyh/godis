@@ -186,19 +186,19 @@ func (sl *SkipList) PrintSkipList() {
 		fmt.Println("nil")
 	}
 }
-func (sl *SkipList) Delete(member string, score float64) error {
+func (sl *SkipList) Delete(member string) error {
 	update := make([]*skipListNode, SkiplistMaxlevel) // 存储要删除节点的前置节点
 
 	x := sl.head
 	for i := sl.level - 1; i >= 0; i-- {
-		for x.level[i].forward != nil && (x.member < member || (x.member == member && x.score < score)) {
+		for x.level[i].forward != nil && (x.level[i].forward.member != member) {
 			x = x.level[i].forward
 		}
 		update[i] = x
 	}
 	x = x.level[0].forward // 定位到要删除的节点
 	// 判断当前查找到的节点是不是要删除的节点
-	if x != nil && x.member == member && x.score == score {
+	if x != nil && x.member == member {
 		// 进行删除
 		for i := 0; i < sl.level; i++ {
 			if update[i].level[i].forward == x {
@@ -326,10 +326,7 @@ func (sl *SkipList) GetRank(member string, score float64) uint64 {
 			rank += head.level[0].span
 			head = head.level[i].forward
 		}
-		/*
-			判断这个节点是不是要找的节点
-			这个节点可能为空
-		*/
+
 		if head != nil && head.level[i].forward.member == member && head.level[i].forward.score == score {
 			return rank
 		}

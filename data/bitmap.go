@@ -1,9 +1,8 @@
 package data
 
 import (
-	"fmt"
+	"encoding/binary"
 	"strconv"
-	"strings"
 
 	"github.com/godis/errs"
 	"github.com/godis/util"
@@ -25,31 +24,33 @@ func BitmapCreate() *Bitmap {
 	}
 }
 
-func (bit *Bitmap) SetBit(offsetStr string, val string) error {
+func (bit *Bitmap) SetBit(offsetStr string, val string) (byte, error) {
 	b, err := bit.getByteValue(val)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	offsetInt, err := strconv.Atoi(offsetStr)
 	if err != nil {
-		return errs.BitOffsetError
+		return 0, errs.BitOffsetError
 	}
 
 	index := offsetInt / 8
 	offset := MaxOffset - offsetInt%8
 	if index < 0 {
-		return errs.BitOffsetError
+		return 0, errs.BitOffsetError
 	} else if index >= bit.Len {
 		newBytes := make([]byte, util.Max(2*index-bit.Len+1, 8))
 		bit.Bytes = append(bit.Bytes, newBytes...)
 		bit.Len += len(newBytes)
 	}
+	rawByte := bit.Bytes[index] >> offset & 1
+
 	if b == 1 {
 		bit.Bytes[index] |= 1 << offset
 	} else {
 		bit.Bytes[index] &= 0xff ^ (1 << offset)
 	}
-	return nil
+	return rawByte, nil
 }
 
 func (bit *Bitmap) getByteValue(val string) (byte, error) {
@@ -101,7 +102,7 @@ func (bit *Bitmap) BitCount() int {
 	return count
 }
 
-func (bit *Bitmap) BitOp(bit2 *Bitmap, op string) (string, error) {
+func (bit *Bitmap) BitOp(bit2 *Bitmap, op string) (uint64, error) {
 	switch op {
 	case "and":
 		return bit.BitOpAND(bit2), nil
@@ -110,53 +111,53 @@ func (bit *Bitmap) BitOp(bit2 *Bitmap, op string) (string, error) {
 	case "xor":
 		return bit.BitOpXOR(bit2), nil
 	default:
-		return "", errs.BitOpError
+		return 0, errs.BitOpError
 	}
 }
 
-func (bit *Bitmap) BitOpAND(bit2 *Bitmap) string {
-	bytes := []string{}
+func (bit *Bitmap) BitOpAND(bit2 *Bitmap) uint64 {
+	bytes := []byte{}
 	l, r := 0, 0
 	for ; l < bit.Len && r < bit2.Len; l, r = l+1, r+1 {
-		bytes = append(bytes, fmt.Sprintf("%08b", (bit.Bytes[l])&(bit2.Bytes[r])))
+		bytes = append(bytes, (bit.Bytes[l])&(bit2.Bytes[r]))
 	}
 	for ; l < bit.Len; l++ {
-		bytes = append(bytes, "00000000")
+		bytes = append(bytes, 0)
 	}
 	for ; r < bit2.Len; r++ {
-		bytes = append(bytes, "00000000")
+		bytes = append(bytes, 0)
 	}
-	return strings.Join(bytes, "")
+
+	return binary.BigEndian.Uint64(bytes)
 }
 
-func (bit *Bitmap) BitOpOR(bit2 *Bitmap) string {
-	bytes := []string{}
+func (bit *Bitmap) BitOpOR(bit2 *Bitmap) uint64 {
+	bytes := []byte{}
 	l, r := 0, 0
 	for ; l < bit.Len && r < bit2.Len; l, r = l+1, r+1 {
-		bytes = append(bytes, fmt.Sprintf("%08b", (bit.Bytes[l])|(bit2.Bytes[r])))
+		bytes = append(bytes, (bit.Bytes[l])|(bit2.Bytes[r]))
 	}
 	for ; l < bit.Len; l++ {
-		bytes = append(bytes, fmt.Sprintf("%08b", (bit.Bytes[l])))
+		bytes = append(bytes, (bit.Bytes[l]))
 	}
 	for ; r < bit2.Len; r++ {
-		bytes = append(bytes, fmt.Sprintf("%08b", (bit2.Bytes[r])))
+		bytes = append(bytes, (bit2.Bytes[r]))
 	}
-	return strings.Join(bytes, "")
+	return binary.BigEndian.Uint64(bytes)
 }
-
-func (bit *Bitmap) BitOpXOR(bit2 *Bitmap) string {
-	bytes := []string{}
+func (bit *Bitmap) BitOpXOR(bit2 *Bitmap) uint64 {
+	bytes := []byte{}
 	l, r := 0, 0
 	for ; l < bit.Len && r < bit2.Len; l, r = l+1, r+1 {
-		bytes = append(bytes, fmt.Sprintf("%08b", (bit.Bytes[l])^(bit2.Bytes[r])))
+		bytes = append(bytes, (bit.Bytes[l])^(bit2.Bytes[r]))
 	}
 	for ; l < bit.Len; l++ {
-		bytes = append(bytes, "11111111")
+		bytes = append(bytes, 0xff)
 	}
 	for ; r < bit2.Len; r++ {
-		bytes = append(bytes, "11111111")
+		bytes = append(bytes, 0xff)
 	}
-	return strings.Join(bytes, "")
+	return binary.BigEndian.Uint64(bytes)
 }
 
 func (bit *Bitmap) BitPos(target string) (int, error) {
