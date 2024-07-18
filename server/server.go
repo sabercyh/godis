@@ -34,8 +34,6 @@ type GodisServer struct {
 
 var server *GodisServer // 定义server全局变量
 
-
-
 func AcceptHandler(loop *AeLoop, fd int, extra any) {
 	// 限制最大连接数
 	if len(server.clients) >= server.MaxClients {
@@ -108,10 +106,10 @@ func InitGodisServerInstance(config *conf.Config, logger *logrus.Logger) (*Godis
 		return nil, err
 	}
 	if server.fd, err = net.TcpServer(server.port, server.logger); err != nil {
-		server.logger.Println("server start fail")
+		server.logger.Errorln("server start fail")
 	}
 	server.AeLoop.AddReadEvent(server.fd, AE_READABLE, AcceptHandler, nil)
 	server.AeLoop.AddTimeEvent(AE_NORMAL, 100, ServerCron, nil)
-	server.logger.Println("godis server is up.")
+	server.logger.Infoln("godis server is up.")
 	return server, nil
 }

@@ -1,6 +1,7 @@
 package data
 
 import (
+	"github.com/godis/conf"
 	"github.com/godis/errs"
 )
 
@@ -14,6 +15,10 @@ func NewZset() *ZSet {
 		Dict:     DictCreate(DictType{HashFunc: GStrHash, EqualFunc: GStrEqual}),
 		skiplist: NewSkipList(),
 	}
+}
+
+func (zs *ZSet) Zlen() int {
+	return int(zs.skiplist.length)
 }
 
 func (zs *ZSet) Zadd(args []*Gobj) (int, error) {
@@ -32,7 +37,7 @@ func (zs *ZSet) Zadd(args []*Gobj) (int, error) {
 			}
 			// 如果分数不相等，则更新
 			zs.Dict.Set(args[i+1], args[i])
-			zs.skiplist.UpdateScore(oldScore, args[i].StrVal(), score)
+			zs.skiplist.UpdateScore(oldScore, args[i+1].StrVal(), score)
 		} else {
 			zs.Dict.Set(args[i+1], args[i])
 			zs.skiplist.Insert(score, args[i+1].StrVal())
@@ -113,15 +118,36 @@ func (zs *ZSet) ZRANK(member *Gobj) (uint64, error) {
 	// 判断是否存在member
 	valObj := zs.Dict.Get(member)
 	if valObj == nil {
-		return 0, errs.CustomError
+		return 0, errs.FieldNotExistError
 	}
 	return zs.skiplist.GetRank(member.StrVal(), valObj.FloatVal()), nil
 }
 
 func (zs *ZSet) ZREM(member *Gobj) (int, error) {
-	if err := zs.skiplist.Delete(member.StrVal()); err != nil {
-		return 0, err
-	} else {
-		return 1, nil
+	score := zs.Dict.Get(member)
+	if score == nil {
+		return 0, errs.FieldNotExistError
 	}
+	if err := zs.skiplist.Delete(member.StrVal(), score.FloatVal()); err != nil {
+		return 0, err
+	}
+	err := zs.Dict.Delete(member)
+	if err != nil {
+		return 0, err
+	}
+	return 1, nil
+}
+
+func (zs *ZSet) ZPOPMIN() (string, float64, error) {
+	member, score := zs.skiplist.head.level[0].forward.member, zs.skiplist.head.level[0].forward.score
+	err := zs.skiplist.Delete(member, score)
+	if err != nil {
+		return "", 0, err
+	}
+
+	err = zs.Dict.Delete(CreateObject(conf.GSTR, member))
+	if err != nil {
+		return "", 0, err
+	}
+	return member, score, nil
 }

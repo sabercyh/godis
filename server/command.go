@@ -42,7 +42,7 @@ var cmdTable = map[string]*GodisCommand{
 	"get":    NewGodisCommand("get", getCommand, 2, false),
 	"del":    NewGodisCommand("del", delCommand, MULTI_ARGS_COMMAND, true),
 	"exists": NewGodisCommand("exists", existsCommand, MULTI_ARGS_COMMAND, false),
-	"incr":   NewGodisCommand("incr", incrCommand, 2, false),
+	"incr":   NewGodisCommand("incr", incrCommand, 2, true),
 	"expire": NewGodisCommand("expire", expireCommand, 3, true),
 	// list
 	"lpush":  NewGodisCommand("lpush", lpushCommand, MULTI_ARGS_COMMAND, true),
@@ -72,13 +72,14 @@ var cmdTable = map[string]*GodisCommand{
 	"sdiff":       NewGodisCommand("sdiff", sdiffCommand, 3, false),
 	"sunion":      NewGodisCommand("sunion", sunionCommand, 3, false),
 	// zset
-	"zadd":   NewGodisCommand("zadd", zaddCommand, MULTI_ARGS_COMMAND, true),
-	"zcard":  NewGodisCommand("zcard", zcardCommand, 2, false),
-	"zscore": NewGodisCommand("zscore", zscoreCommand, 3, false),
-	"zrange": NewGodisCommand("zrange", zrangeCommand, 4, false),
-	"zrank":  NewGodisCommand("zrank", zrankCommand, 3, false),
-	"zrem":   NewGodisCommand("zrem", zremCommand, MULTI_ARGS_COMMAND, true),
-	"zcount": NewGodisCommand("zcount", zcountCommand, 4, false),
+	"zadd":    NewGodisCommand("zadd", zaddCommand, MULTI_ARGS_COMMAND, true),
+	"zcard":   NewGodisCommand("zcard", zcardCommand, 2, false),
+	"zscore":  NewGodisCommand("zscore", zscoreCommand, 3, false),
+	"zrange":  NewGodisCommand("zrange", zrangeCommand, 4, false),
+	"zrank":   NewGodisCommand("zrank", zrankCommand, 3, false),
+	"zrem":    NewGodisCommand("zrem", zremCommand, MULTI_ARGS_COMMAND, true),
+	"zcount":  NewGodisCommand("zcount", zcountCommand, 4, false),
+	"zpopmin": NewGodisCommand("zpopmin", zpopminCommand, 2, true),
 	// bitmap
 	"setbit":   NewGodisCommand("setbit", setbitCommand, 4, true),
 	"getbit":   NewGodisCommand("getbit", getbitCommand, 3, false),
@@ -89,6 +90,9 @@ var cmdTable = map[string]*GodisCommand{
 	"slowlog": NewGodisCommand("slowlog", slowlogCommand, 2, false),
 	"save":    NewGodisCommand("save", saveCommand, 1, false),
 	"bgsave":  NewGodisCommand("bgsave", bgsaveCommand, 1, false),
+
+	// Undo
+	"xadd": NewGodisCommand("xadd", xaddCommand, 5, false),
 }
 
 func expireIfNeeded(key *data.Gobj) {
@@ -1080,6 +1084,35 @@ func zcountCommand(c *GodisClient) (bool, error) {
 	return true, nil
 }
 
+func zpopminCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	zsObj := server.DB.Data.Get(key)
+	if zsObj != nil {
+		if zsObj.Type_ != conf.GZSET {
+			c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		c.AddReplyStr("*0\r\n")
+		return false, errs.KeyNotExistError
+	}
+
+	zs := zsObj.Val_.(*data.ZSet)
+	if zs.Zlen() == 0 {
+		c.AddReplyStr("*0\r\n")
+		return false, errs.KeyNotExistError
+	}
+
+	member, score, err := zs.ZPOPMIN()
+	if err != nil {
+		c.AddReplyStr("*0\r\n")
+		return false, err
+	}
+	s := strconv.FormatFloat(score, 'f', -1, 64)
+	c.AddReplyStr(fmt.Sprintf("*2\r\n$%d\r\n%s\r\n$%d\r\n%s\r\n", len(member), member, len(s), s))
+	return true, nil
+}
+
 func setbitCommand(c *GodisClient) (bool, error) {
 	key := c.args[1]
 	bitObj := server.DB.Data.Get(key)
@@ -1260,4 +1293,10 @@ func bgsaveCommand(c *GodisClient) (bool, error) {
 		c.AddReplyStr("+Background saving started\r\n")
 	}
 	return true, nil
+}
+
+func xaddCommand(c *GodisClient) (bool, error) {
+	c.AddReplyStr("$1\r\n1\r\n")
+	return true, nil
+
 }
