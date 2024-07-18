@@ -229,6 +229,12 @@ func (client *GodisClient) AddReplyStr(str string) {
 	}
 }
 
+func (client *GodisClient) AddReplyBytes(bytes []byte) {
+	if client.fd != -1 {
+		o := data.CreateObject(conf.GBYTES, bytes)
+		client.AddReply(o)
+	}
+}
 func ProcessCommand(c *GodisClient) {
 	cmdStr := c.args[0].StrVal()
 	// c.logEntry.Debugf("process command: %v\n", cmdStr)
@@ -241,7 +247,8 @@ func ProcessCommand(c *GodisClient) {
 		c.AddReplyStr(fmt.Sprintf("-ERR unknown command '%s'\r\n", cmdStr))
 		resetClient(c)
 		return
-	} else if cmd.arity != len(c.args) {
+	}
+	if cmd.arity != MULTI_ARGS_COMMAND && cmd.arity != len(c.args) {
 		c.AddReplyStr(fmt.Sprintf("-ERR wrong number of arguments for '%s' command\r\n", cmdStr))
 		resetClient(c)
 		return
@@ -261,8 +268,8 @@ func ProcessCommand(c *GodisClient) {
 		for _, v := range c.args {
 			v.IncrRefCount()
 		}
-		server.Slowlog.LPush(data.CreateObject(conf.GSLOWLOG, &SlowLogEntry{
-			id: func() int64 {
+		server.Slowlog.LPush(data.CreateObject(conf.GSLOWLOG, &data.SlowLogEntry{
+			ID: func() int64 {
 				s, err := util.NewSnowFlake(c.logEntry.Logger, server.workerID)
 				if err != nil {
 					c.logEntry.Errorf("NewSnowFlake failed: %v\n", err)
@@ -275,10 +282,10 @@ func ProcessCommand(c *GodisClient) {
 				}
 				return id
 			}(),
-			duration: duration,
-			time:     start,
-			robj:     c.args,
-			argc:     len(c.args),
+			Duration: duration,
+			Time:     start,
+			Robj:     c.args,
+			Argc:     len(c.args),
 		}))
 	}
 

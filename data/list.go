@@ -1,6 +1,9 @@
 package data
 
 import (
+	"bytes"
+	"strconv"
+
 	"github.com/godis/errs"
 	"github.com/godis/util"
 )
@@ -77,8 +80,8 @@ func (list *List) ForwardIndex(index int) *Node {
 	return node
 }
 
-func (list *List) Range(left, right int) []*Gobj {
-	res := make([]*Gobj, 0)
+func (list *List) RangeVal(left, right int) []byte {
+	reply := new(bytes.Buffer)
 	if left < 0 {
 		left = list.length + left
 	}
@@ -86,7 +89,7 @@ func (list *List) Range(left, right int) []*Gobj {
 		right = list.length + right
 	}
 	if left > right {
-		return res
+		return reply.Bytes()
 	}
 	if left < 0 {
 		left = 0
@@ -95,11 +98,50 @@ func (list *List) Range(left, right int) []*Gobj {
 		right = list.length - 1
 	}
 	node := list.Index(left)
+	reply.WriteByte(byte('*'))
+	reply.WriteString(strconv.Itoa(right - left + 1))
+	reply.WriteString("\r\n")
 	for i := 0; i <= right-left; i++ {
-		res = append(res, node.Val)
+		val := node.Val.StrVal()
+		reply.WriteByte(byte('$'))
+		reply.WriteString(strconv.Itoa(len(val)))
+		reply.WriteString("\r\n")
+		reply.WriteString(val)
+		reply.WriteString("\r\n")
 		node = node.next
 	}
-	return res
+	return reply.Bytes()
+}
+
+func (list *List) RangeSlowlog() []byte {
+	reply := new(bytes.Buffer)
+	reply.WriteByte(byte('*'))
+	reply.WriteString(strconv.Itoa(list.length))
+	reply.WriteString("\r\n")
+	node := list.Head
+	for i := 0; i < list.length; i++ {
+		reply.WriteString("*4\r\n:")
+		logEntry := node.Val.Val_.(*SlowLogEntry)
+		reply.WriteString(strconv.Itoa(int(logEntry.ID)))
+		reply.WriteString("\r\n:")
+		reply.WriteString(strconv.Itoa(int(logEntry.Time)))
+		reply.WriteString("\r\n:")
+		reply.WriteString(strconv.Itoa(int(logEntry.Duration)))
+		reply.WriteString("\r\n*")
+		reply.WriteString(strconv.Itoa(logEntry.Argc))
+		reply.WriteString("\r\n")
+
+		for i := 0; i < logEntry.Argc; i++ {
+			val := logEntry.Robj[i].StrVal()
+			reply.WriteString("$")
+			reply.WriteString(strconv.Itoa(len(val)))
+			reply.WriteString("\r\n")
+			reply.WriteString(val)
+			reply.WriteString("\r\n")
+		}
+		node = node.next
+	}
+	return reply.Bytes()
 }
 
 func (list *List) ReverseIndex(index int) *Node {

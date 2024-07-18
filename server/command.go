@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
 	"strconv"
 	"strings"
@@ -11,9 +12,10 @@ import (
 	"github.com/godis/util"
 )
 
+const MULTI_ARGS_COMMAND int = -1
+
 type CommandProc func(c *GodisClient) (bool, error)
 
-// do not support bulk command
 type GodisCommand struct {
 	name     string
 	proc     CommandProc
@@ -35,16 +37,17 @@ var cmdTable = map[string]*GodisCommand{
 	"ping": NewGodisCommand("ping", pingCommand, 1, false),
 	// string
 	"set":    NewGodisCommand("set", setCommand, 3, true),
+	"mset":   NewGodisCommand("mset", msetCommand, MULTI_ARGS_COMMAND, true),
 	"setnx":  NewGodisCommand("setnx", setnxCommand, 3, true),
 	"get":    NewGodisCommand("get", getCommand, 2, false),
-	"del":    NewGodisCommand("del", delCommand, 2, true),
-	"exists": NewGodisCommand("exists", existsCommand, 2, false),
-	"incr":   NewGodisCommand("incr", incrCommand, 2, false),
+	"del":    NewGodisCommand("del", delCommand, MULTI_ARGS_COMMAND, true),
+	"exists": NewGodisCommand("exists", existsCommand, MULTI_ARGS_COMMAND, false),
+	"incr":   NewGodisCommand("incr", incrCommand, 2, true),
 	"expire": NewGodisCommand("expire", expireCommand, 3, true),
 	// list
-	"lpush":  NewGodisCommand("lpush", lpushCommand, 3, true),
+	"lpush":  NewGodisCommand("lpush", lpushCommand, MULTI_ARGS_COMMAND, true),
 	"lpop":   NewGodisCommand("lpop", lpopCommand, 2, true),
-	"rpush":  NewGodisCommand("rpush", rpushCommand, 3, true),
+	"rpush":  NewGodisCommand("rpush", rpushCommand, MULTI_ARGS_COMMAND, true),
 	"rpop":   NewGodisCommand("rpop", rpopCommand, 2, true),
 	"lset":   NewGodisCommand("lset", lsetCommand, 4, true),
 	"lrem":   NewGodisCommand("lrem", lremCommand, 3, true),
@@ -52,30 +55,31 @@ var cmdTable = map[string]*GodisCommand{
 	"lindex": NewGodisCommand("lindex", lindexCommand, 3, false),
 	"lrange": NewGodisCommand("lrange", lrangeCommand, 4, false),
 	// hash
-	"hset":    NewGodisCommand("hset", hsetCommand, 4, true),
+	"hset":    NewGodisCommand("hset", hsetCommand, MULTI_ARGS_COMMAND, true),
 	"hget":    NewGodisCommand("hget", hgetCommand, 3, false),
-	"hdel":    NewGodisCommand("hdel", hdelCommand, 3, true),
+	"hdel":    NewGodisCommand("hdel", hdelCommand, MULTI_ARGS_COMMAND, true),
 	"hexists": NewGodisCommand("hexists", hexistsCommand, 3, false),
 	"hgetall": NewGodisCommand("hgetall", hgetallCommand, 2, false),
 	// set
-	"sadd":        NewGodisCommand("sadd", saddCommand, 3, true),
+	"sadd":        NewGodisCommand("sadd", saddCommand, MULTI_ARGS_COMMAND, true),
 	"scard":       NewGodisCommand("scard", scardCommand, 2, false),
 	"sismember":   NewGodisCommand("sismember", sismemberCommand, 3, false),
 	"smembers":    NewGodisCommand("smembers", smembersCommand, 2, false),
 	"srandmember": NewGodisCommand("srandmember", srandmemberCommand, 2, false),
-	"srem":        NewGodisCommand("srem", sremCommand, 3, true),
+	"srem":        NewGodisCommand("srem", sremCommand, MULTI_ARGS_COMMAND, true),
 	"spop":        NewGodisCommand("spop", spopCommand, 2, true),
 	"sinter":      NewGodisCommand("sinter", sinterCommand, 3, false),
 	"sdiff":       NewGodisCommand("sdiff", sdiffCommand, 3, false),
 	"sunion":      NewGodisCommand("sunion", sunionCommand, 3, false),
 	// zset
-	"zadd":   NewGodisCommand("zadd", zaddCommand, 4, true),
-	"zcard":  NewGodisCommand("zcard", zcardCommand, 2, false),
-	"zscore": NewGodisCommand("zscore", zscoreCommand, 3, false),
-	"zrange": NewGodisCommand("zrange", zrangeCommand, 4, false), // ZRANGE key start stop
-	"zrank":  NewGodisCommand("zrank", zrankCommand, 3, false),   // ZRANK key member
-	"zrem":   NewGodisCommand("zrem", zremCommand, 3, true),      // ZREM key member
-	"zcount": NewGodisCommand("zcount", zcountCommand, 4, false), // ZCOUNT key min max
+	"zadd":    NewGodisCommand("zadd", zaddCommand, MULTI_ARGS_COMMAND, true),
+	"zcard":   NewGodisCommand("zcard", zcardCommand, 2, false),
+	"zscore":  NewGodisCommand("zscore", zscoreCommand, 3, false),
+	"zrange":  NewGodisCommand("zrange", zrangeCommand, 4, false),
+	"zrank":   NewGodisCommand("zrank", zrankCommand, 3, false),
+	"zrem":    NewGodisCommand("zrem", zremCommand, MULTI_ARGS_COMMAND, true),
+	"zcount":  NewGodisCommand("zcount", zcountCommand, 4, false),
+	"zpopmin": NewGodisCommand("zpopmin", zpopminCommand, 2, true),
 	// bitmap
 	"setbit":   NewGodisCommand("setbit", setbitCommand, 4, true),
 	"getbit":   NewGodisCommand("getbit", getbitCommand, 3, false),
@@ -86,6 +90,9 @@ var cmdTable = map[string]*GodisCommand{
 	"slowlog": NewGodisCommand("slowlog", slowlogCommand, 2, false),
 	"save":    NewGodisCommand("save", saveCommand, 1, false),
 	"bgsave":  NewGodisCommand("bgsave", bgsaveCommand, 1, false),
+
+	// Undo
+	"xadd": NewGodisCommand("xadd", xaddCommand, 5, false),
 }
 
 func expireIfNeeded(key *data.Gobj) {
@@ -126,6 +133,27 @@ func setCommand(c *GodisClient) (bool, error) {
 	return true, nil
 }
 
+func msetCommand(c *GodisClient) (bool, error) {
+	if len(c.args) < 3 || len(c.args[1:])%2 != 0 {
+		c.AddReplyStr("-ERR wrong number of arguments for 'mset' command\r\n")
+		return false, errs.ParamsCheckError
+	}
+	var key, val *data.Gobj
+
+	for i := 1; i < len(c.args); i += 2 {
+		key = c.args[i]
+		val = c.args[i+1]
+		if val.Type_ != conf.GSTR {
+			continue
+		}
+		server.DB.Data.Set(key, val)
+		server.DB.Expire.Delete(key)
+	}
+
+	c.AddReplyStr("+OK\r\n")
+	return true, nil
+}
+
 func getCommand(c *GodisClient) (bool, error) {
 	key := c.args[1]
 	val := findKeyRead(key)
@@ -144,13 +172,21 @@ func getCommand(c *GodisClient) (bool, error) {
 }
 
 func delCommand(c *GodisClient) (bool, error) {
-	key := c.args[1]
-	err := server.DB.Data.Delete(key)
-	if err != nil {
-		c.AddReplyStr(":0\r\n")
-		return false, errs.DelKeyError
+	if len(c.args) < 2 {
+		c.AddReplyStr("-ERR wrong number of arguments for 'del' command\r\n")
+		return false, errs.ParamsCheckError
 	}
-	c.AddReplyStr(":1\r\n")
+	var key *data.Gobj
+	count := 0
+	for i := range c.args {
+		key = c.args[i]
+		err := server.DB.Data.Delete(key)
+		if err != nil {
+			continue
+		}
+		count++
+	}
+	c.AddReplyStr(fmt.Sprintf(":%d\r\n", count))
 	return true, nil
 
 }
@@ -197,13 +233,20 @@ func setnxCommand(c *GodisClient) (bool, error) {
 	return true, nil
 }
 func existsCommand(c *GodisClient) (bool, error) {
-	key := c.args[1]
-	val := findKeyRead(key)
-	if val == nil {
-		c.AddReplyStr(":0\r\n")
-		return false, errs.KeyNotExistError
+	if len(c.args) < 2 {
+		c.AddReplyStr("-ERR wrong number of arguments for 'exists' command\r\n")
+		return false, errs.ParamsCheckError
 	}
-	c.AddReplyStr(":1\r\n")
+	var key *data.Gobj
+	count := 0
+	for i := range c.args {
+		key = c.args[i]
+		val := findKeyRead(key)
+		if val != nil {
+			count++
+		}
+	}
+	c.AddReplyStr(fmt.Sprintf(":%d\r\n", count))
 	return true, nil
 }
 func expireCommand(c *GodisClient) (bool, error) {
@@ -225,6 +268,11 @@ func expireCommand(c *GodisClient) (bool, error) {
 }
 
 func lpushCommand(c *GodisClient) (bool, error) {
+	if len(c.args) < 3 {
+		c.AddReplyStr("-ERR wrong number of arguments for 'lpush' command\r\n")
+		return false, errs.ParamsCheckError
+	}
+
 	key := c.args[1]
 	listObj := server.DB.Data.Get(key)
 	if listObj != nil {
@@ -238,7 +286,10 @@ func lpushCommand(c *GodisClient) (bool, error) {
 
 	}
 	list := listObj.Val_.(*data.List)
-	list.LPush(c.args[2])
+
+	for i := 2; i < len(c.args); i++ {
+		list.LPush(c.args[i])
+	}
 	c.AddReplyStr(fmt.Sprintf(":%d\r\n", list.Length()))
 	return true, nil
 }
@@ -264,6 +315,11 @@ func lpopCommand(c *GodisClient) (bool, error) {
 	return true, nil
 }
 func rpushCommand(c *GodisClient) (bool, error) {
+	if len(c.args) < 3 {
+		c.AddReplyStr("-ERR wrong number of arguments for 'rpush' command\r\n")
+		return false, errs.ParamsCheckError
+	}
+
 	key := c.args[1]
 	listObj := server.DB.Data.Get(key)
 	if listObj != nil {
@@ -277,7 +333,9 @@ func rpushCommand(c *GodisClient) (bool, error) {
 
 	}
 	list := listObj.Val_.(*data.List)
-	list.RPush(c.args[2])
+	for i := 2; i < len(c.args); i++ {
+		list.RPush(c.args[i])
+	}
 	c.AddReplyStr(fmt.Sprintf(":%d\r\n", list.Length()))
 	return true, nil
 }
@@ -421,19 +479,22 @@ func lrangeCommand(c *GodisClient) (bool, error) {
 		c.AddReplyStr("-ERR value is not an integer or out of range\r\n")
 		return false, errs.TypeCheckError
 	}
-	Gobjs := list.Range(left, right)
-	if len(Gobjs) == 0 {
+	reply := list.RangeVal(left, right)
+	if len(reply) == 0 {
 		c.AddReplyStr("*0\r\n")
 		return true, nil
 	}
-	reply := "*" + strconv.Itoa(len(Gobjs)) + "\r\n"
-	for i := range Gobjs {
-		reply += fmt.Sprintf("$%d\r\n%s\r\n", len(Gobjs[i].StrVal()), Gobjs[i].StrVal())
-	}
-	c.AddReplyStr(reply)
+
+	c.AddReplyBytes(reply)
 	return true, nil
 }
 func hsetCommand(c *GodisClient) (bool, error) {
+	if len(c.args[2:])%2 != 0 {
+		c.AddReplyStr("-ERR wrong number of arguments for 'hset' command\r\n")
+		return false, errs.ParamsCheckError
+	}
+
+	var count int
 	key := c.args[1]
 	htObj := server.DB.Data.Get(key)
 	if htObj != nil {
@@ -447,8 +508,12 @@ func hsetCommand(c *GodisClient) (bool, error) {
 
 	}
 	ht := htObj.Val_.(*data.Dict)
-	ht.Set(c.args[2], c.args[3])
-	c.AddReplyStr(":1\r\n")
+
+	for i := 2; i < len(c.args); i += 2 {
+		count += ht.Set(c.args[i], c.args[i+1])
+	}
+
+	c.AddReplyStr(fmt.Sprintf(":%d\r\n", count))
 	return true, nil
 }
 
@@ -494,7 +559,7 @@ func hgetallCommand(c *GodisClient) (bool, error) {
 	}
 	ht := htObj.Val_.(*data.Dict)
 	objs := ht.IterateDict()
-	reply := fmt.Sprintf("*%d\r\n", len(objs))
+	reply := fmt.Sprintf("*%d\r\n", len(objs)*2)
 	for i := range objs {
 		reply += fmt.Sprintf("$%d\r\n%v\r\n$%d\r\n%v\r\n", len(objs[i][0].StrVal()), objs[i][0].StrVal(), len(objs[i][1].StrVal()), objs[i][1].StrVal())
 	}
@@ -529,6 +594,8 @@ func hexistsCommand(c *GodisClient) (bool, error) {
 	return true, nil
 }
 func hdelCommand(c *GodisClient) (bool, error) {
+	var count int
+
 	key := c.args[1]
 	htObj := server.DB.Data.Get(key)
 	if htObj != nil {
@@ -541,16 +608,25 @@ func hdelCommand(c *GodisClient) (bool, error) {
 		return false, errs.KeyNotExistError
 	}
 	ht := htObj.Val_.(*data.Dict)
-	err := ht.Delete(c.args[2])
-	if err != nil {
-		c.AddReplyStr(":0\r\n")
-		return false, errs.DelFieldError
+
+	for i := 2; i < len(c.args); i++ {
+		err := ht.Delete(c.args[i])
+		if err != nil {
+			continue
+		}
+		count++
 	}
-	c.AddReplyStr(":1\r\n")
+
+	c.AddReplyStr(fmt.Sprintf(":%d\r\n", count))
 	return true, nil
 }
 
 func saddCommand(c *GodisClient) (bool, error) {
+	if len(c.args) < 3 {
+		c.AddReplyStr("-ERR wrong number of arguments for 'sadd' command\r\n")
+		return false, errs.ParamsCheckError
+	}
+
 	key := c.args[1]
 	setObj := server.DB.Data.Get(key)
 	if setObj != nil {
@@ -563,12 +639,12 @@ func saddCommand(c *GodisClient) (bool, error) {
 		server.DB.Data.Set(key, setObj)
 	}
 	set := setObj.Val_.(*data.Set)
-	err := set.SAdd(c.args[2])
-	if err != nil {
-		c.AddReplyStr(":0\r\n")
-		return false, err
+
+	for i := 2; i < len(c.args); i++ {
+		set.SAdd(c.args[i])
 	}
-	c.AddReplyStr(":1\r\n")
+	c.AddReplyStr(fmt.Sprintf(":%d\r\n", set.Length()))
+
 	return true, nil
 }
 
@@ -656,6 +732,13 @@ func srandmemberCommand(c *GodisClient) (bool, error) {
 }
 
 func sremCommand(c *GodisClient) (bool, error) {
+	if len(c.args) < 3 {
+		c.AddReplyStr("-ERR wrong number of arguments for 'srem' command\r\n")
+		return false, errs.ParamsCheckError
+	}
+
+	var count int
+
 	key := c.args[1]
 	setObj := server.DB.Data.Get(key)
 	if setObj != nil {
@@ -664,17 +747,22 @@ func sremCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		c.AddReplyStr("$:0\r\n")
-		return false, nil
-	}
-	set := setObj.Val_.(*data.Set)
-	member := c.args[2]
-	err := set.SDel(member)
-	if err != nil {
 		c.AddReplyStr(":0\r\n")
 		return false, nil
 	}
-	c.AddReplyStr(":1\r\n")
+	set := setObj.Val_.(*data.Set)
+
+	for i := 2; i < len(c.args); i++ {
+		member := c.args[i]
+		err := set.SDel(member)
+		if err != nil {
+			continue
+		}
+		count++
+	}
+
+	c.AddReplyStr(fmt.Sprintf(":%d\r\n", count))
+
 	return true, nil
 }
 
@@ -768,7 +856,7 @@ func sdiffCommand(c *GodisClient) (bool, error) {
 
 	diff := set1.SDiff(set2)
 	if len(diff) == 0 {
-		c.AddReplyStr("(empty array)\r\n")
+		c.AddReplyStr("*0\r\n")
 		return true, nil
 	}
 
@@ -808,7 +896,7 @@ func sunionCommand(c *GodisClient) (bool, error) {
 
 	union := set1.SUnion(set2)
 	if len(union) == 0 {
-		c.AddReplyStr("(empty array)\r\n")
+		c.AddReplyStr("*0\r\n")
 		return true, nil
 	}
 	reply := fmt.Sprintf("*%d\r\n", len(union))
@@ -819,6 +907,10 @@ func sunionCommand(c *GodisClient) (bool, error) {
 	return true, nil
 }
 func zaddCommand(c *GodisClient) (bool, error) {
+	if len(c.args) < 4 || len(c.args[2:])%2 != 0 {
+		c.AddReplyStr("-ERR wrong number of arguments for 'zadd' command\r\n")
+		return false, errs.ParamsCheckError
+	}
 	key := c.args[1]
 	zsObj := server.DB.Data.Get(key)
 	if zsObj != nil {
@@ -831,115 +923,140 @@ func zaddCommand(c *GodisClient) (bool, error) {
 		server.DB.Data.Set(key, zsObj)
 	}
 	zs := zsObj.Val_.(*data.ZSet)
-	zaddReply := zs.Zadd(c.args[2:])
-	if zaddReply.Err != nil {
-		zsObj.DecrRefCount()
-		c.AddReplyStr(zaddReply.Err.Error() + "\r\n")
-		return false, zaddReply.Err
-	} else {
-		c.AddReplyStr("update (integer)" + fmt.Sprint(zaddReply.UpdateCount) + "\r\n")
-		c.AddReplyStr("new (integer)" + fmt.Sprint(zaddReply.NewCount) + "\r\n")
+	newCount, err := zs.Zadd(c.args[2:])
+	if err != nil {
+		c.AddReplyStr("-ERR value is not a valid float\r\n")
+		return false, err
 	}
+
+	c.AddReplyStr(fmt.Sprintf(":%d\r\n", newCount))
+
 	return true, nil
 }
 
 func zcardCommand(c *GodisClient) (bool, error) {
 	key := c.args[1]
-	// 判断key是否存在
 	zsObj := server.DB.Data.Get(key)
-	if zsObj == nil {
-		c.AddReplyStr("(integer) 0\r\n")
-		return false, errs.KeyNotExistError
+	if zsObj != nil {
+		if zsObj.Type_ != conf.GZSET {
+			c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
 	} else {
-		zs := zsObj.Val_.(*data.ZSet)
-		c.AddReplyStr("(integer) " + fmt.Sprint(zs.Zcard()))
+		c.AddReplyStr(":0\r\n")
+		return false, errs.KeyNotExistError
 	}
+
+	zs := zsObj.Val_.(*data.ZSet)
+	c.AddReplyStr(fmt.Sprintf(":%d\r\n", zs.Zcard()))
 	return true, nil
 }
 
 func zscoreCommand(c *GodisClient) (bool, error) {
 	key := c.args[1]
 	zsObj := server.DB.Data.Get(key)
-	if zsObj == nil {
-		c.AddReplyStr("nil" + "\r\n")
+	if zsObj != nil {
+		if zsObj.Type_ != conf.GZSET {
+			c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		c.AddReplyStr("$-1\r\n")
 		return false, errs.KeyNotExistError
-	}
-	if err := zsObj.CheckType(conf.GZSET); err != nil {
-		c.AddReplyStr(err.Error() + "\r\n")
-		return false, errs.TypeCheckError
 	}
 	zs := zsObj.Val_.(*data.ZSet)
 	str := zs.Zscore(c.args[2])
 	if str == "" {
-		c.AddReplyStr("nil" + "\r\n")
+		c.AddReplyStr("$-1\r\n")
 		return false, errs.KeyNotExistError
 	}
-	c.AddReplyStr(str + "\r\n")
+	c.AddReplyStr(fmt.Sprintf("$%d\r\n%s\r\n", len(str), str))
 	return true, nil
 }
 
+// 返回指定范围内的元素
 func zrangeCommand(c *GodisClient) (bool, error) {
 	key := c.args[1]
 	zsObj := server.DB.Data.Get(key)
-	if zsObj == nil {
-		c.AddReplyStr("(empty list or set)" + "\r\n")
+	if zsObj != nil {
+		if zsObj.Type_ != conf.GZSET {
+			c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		c.AddReplyStr("*0\r\n")
 		return false, errs.KeyNotExistError
 	}
-	if err := zsObj.CheckType(conf.GZSET); err != nil {
-		c.AddReplyStr(err.Error() + "\r\n")
-		return false, errs.TypeCheckError
-	}
 	zs := zsObj.Val_.(*data.ZSet)
-	// 从object中提取 start end
 	if strSlice, err := zs.Zrange(c.args[2], c.args[3]); err != nil {
-		c.AddReplyStr(err.Error() + "\r\n")
+		if err == errs.OutOfRangeError {
+			c.AddReplyStr("*0\r\n")
+		} else {
+			c.AddReplyStr("-ERR value is not an integer or out of range\r\n")
+		}
 		return false, err
 	} else {
+		bytes := bytes.Buffer{}
+		bytes.WriteString(fmt.Sprintf("*%d\r\n", len(strSlice)))
 		for i := 0; i < len(strSlice); i++ {
-			c.AddReplyStr(strSlice[i] + "\r\n")
+			bytes.WriteString(fmt.Sprintf("$%d", len(strSlice[i])))
+			bytes.WriteString(fmt.Sprintf("\r\n%s\r\n", strSlice[i]))
 		}
+		c.AddReplyBytes(bytes.Bytes())
 	}
 	return true, nil
 }
 
 func zremCommand(c *GodisClient) (bool, error) {
+	if len(c.args) < 3 {
+		c.AddReplyStr("-ERR wrong number of arguments for 'zrem' command\r\n")
+		return false, errs.ParamsCheckError
+	}
+	var count int
 	key := c.args[1]
 	zsObj := server.DB.Data.Get(key)
-	if zsObj == nil {
-		c.AddReplyStr("(integer) 0" + "\r\n")
+	if zsObj != nil {
+		if zsObj.Type_ != conf.GZSET {
+			c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		c.AddReplyStr(":0\r\n")
 		return false, errs.KeyNotExistError
 	}
-	if err := zsObj.CheckType(conf.GZSET); err != nil {
-		c.AddReplyStr(err.Error() + "\r\n")
-		return false, errs.TypeCheckError
-	}
 	zs := zsObj.Val_.(*data.ZSet)
-	if n, err := zs.ZREM(c.args[2], c.args[3]); err != nil {
-		c.AddReplyStr(err.Error() + "\r\n")
-		return false, err
-	} else {
-		c.AddReplyStr("(integer)" + fmt.Sprint(n) + "\r\n")
+
+	for i := 2; i < len(c.args); i++ {
+		if n, err := zs.ZREM(c.args[i]); err != nil {
+			continue
+		} else {
+			count += n
+		}
 	}
+
+	c.AddReplyStr(fmt.Sprintf(":%d\r\n", count))
+
 	return true, nil
 }
 
 func zrankCommand(c *GodisClient) (bool, error) {
 	key := c.args[1]
 	zsObj := server.DB.Data.Get(key)
-	if zsObj == nil {
-		c.AddReplyStr("(integer) 0" + "\r\n")
+	if zsObj != nil {
+		if zsObj.Type_ != conf.GZSET {
+			c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		c.AddReplyStr("$-1\r\n")
 		return false, errs.KeyNotExistError
-	}
-	if err := zsObj.CheckType(conf.GZSET); err != nil {
-		c.AddReplyStr(err.Error() + "\r\n")
-		return false, errs.TypeCheckError
 	}
 	zs := zsObj.Val_.(*data.ZSet)
 	if rank, err := zs.ZRANK(c.args[2]); err != nil {
-		c.AddReplyStr(err.Error() + "\r\n")
+		c.AddReplyStr("$-1\r\n")
 		return false, err
 	} else {
-		c.AddReplyStr("(integer)" + fmt.Sprint(rank) + "\r\n")
+		c.AddReplyStr(fmt.Sprintf(":%d\r\n", rank))
 	}
 	return true, nil
 }
@@ -947,20 +1064,52 @@ func zrankCommand(c *GodisClient) (bool, error) {
 func zcountCommand(c *GodisClient) (bool, error) {
 	key := c.args[1]
 	zsObj := server.DB.Data.Get(key)
-	if zsObj == nil {
-		c.AddReplyStr("(integer) 0" + "\r\n")
+	if zsObj != nil {
+		if zsObj.Type_ != conf.GZSET {
+			c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		c.AddReplyStr(":0\r\n")
 		return false, errs.KeyNotExistError
 	}
-	if err := zsObj.CheckType(conf.GZSET); err != nil {
-		c.AddReplyStr(err.Error() + "\r\n")
-		return false, errs.TypeCheckError
-	}
-	if number, err := zsObj.Val_.(*data.ZSet).Zcount(c.args[2], c.args[3]); err != nil {
-		c.AddReplyStr(err.Error() + "\r\n")
+
+	number, err := zsObj.Val_.(*data.ZSet).Zcount(c.args[2], c.args[3])
+	if err != nil {
+		c.AddReplyStr("-ERR value is not an integer or out of range\r\n")
 		return false, err
-	} else {
-		c.AddReplyStr("(integer) " + fmt.Sprint(number) + "\r\n")
 	}
+
+	c.AddReplyStr(fmt.Sprintf(":%d\r\n", number))
+	return true, nil
+}
+
+func zpopminCommand(c *GodisClient) (bool, error) {
+	key := c.args[1]
+	zsObj := server.DB.Data.Get(key)
+	if zsObj != nil {
+		if zsObj.Type_ != conf.GZSET {
+			c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
+			return false, errs.TypeCheckError
+		}
+	} else {
+		c.AddReplyStr("*0\r\n")
+		return false, errs.KeyNotExistError
+	}
+
+	zs := zsObj.Val_.(*data.ZSet)
+	if zs.Zlen() == 0 {
+		c.AddReplyStr("*0\r\n")
+		return false, errs.KeyNotExistError
+	}
+
+	member, score, err := zs.ZPOPMIN()
+	if err != nil {
+		c.AddReplyStr("*0\r\n")
+		return false, err
+	}
+	s := strconv.FormatFloat(score, 'f', -1, 64)
+	c.AddReplyStr(fmt.Sprintf("*2\r\n$%d\r\n%s\r\n$%d\r\n%s\r\n", len(member), member, len(s), s))
 	return true, nil
 }
 
@@ -978,14 +1127,12 @@ func setbitCommand(c *GodisClient) (bool, error) {
 	}
 	bit := bitObj.Val_.(*data.Bitmap)
 	offset, value := c.args[2].StrVal(), c.args[3].StrVal()
-	err := bit.SetBit(offset, value)
+	rawByte, err := bit.SetBit(offset, value)
 	if err != nil {
-		c.AddReplyStr(fmt.Sprintf("-ERR:%v\r\n", err))
+		c.AddReplyStr(fmt.Sprintf("-ERR %v\r\n", err))
 		return false, err
 	}
-	server.DB.Data.Set(key, bitObj)
-	server.DB.Expire.Delete(key)
-	c.AddReplyStr(fmt.Sprintf("(integer) %s\r\n", value))
+	c.AddReplyStr(fmt.Sprintf(":%d\r\n", rawByte))
 	return true, nil
 }
 
@@ -998,17 +1145,17 @@ func getbitCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		bitObj = data.CreateObject(conf.GBIT, data.BitmapCreate())
-		server.DB.Data.Set(key, bitObj)
+		c.AddReplyStr(":0\r\n")
+		return false, nil
 	}
 	bit := bitObj.Val_.(*data.Bitmap)
 	offset := c.args[2].StrVal()
 	b, err := bit.GetBit(offset)
 	if err != nil {
-		c.AddReplyStr(fmt.Sprintf("-ERR:%v\r\n", err))
+		c.AddReplyStr(fmt.Sprintf("-ERR %v\r\n", err))
 		return false, err
 	}
-	c.AddReplyStr(fmt.Sprintf(":%s\r\n", string(b)))
+	c.AddReplyStr(fmt.Sprintf(":%d\r\n", b))
 	return true, nil
 }
 
@@ -1021,8 +1168,8 @@ func bitcountCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		bitObj = data.CreateObject(conf.GBIT, data.BitmapCreate())
-		server.DB.Data.Set(key, bitObj)
+		c.AddReplyStr(":0\r\n")
+		return false, nil
 	}
 	bit := bitObj.Val_.(*data.Bitmap)
 	count := bit.BitCount()
@@ -1061,7 +1208,7 @@ func bitopCommand(c *GodisClient) (bool, error) {
 		c.AddReplyStr(fmt.Sprintf("-ERR:%v\r\n", err))
 		return false, err
 	}
-	c.AddReplyStr(fmt.Sprintf("%v\r\n", res))
+	c.AddReplyStr(fmt.Sprintf(":%b\r\n", res))
 	return true, nil
 }
 func bitposCommand(c *GodisClient) (bool, error) {
@@ -1073,14 +1220,18 @@ func bitposCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		bitObj = data.CreateObject(conf.GBIT, data.BitmapCreate())
-		server.DB.Data.Set(key, bitObj)
+		if c.args[2].StrVal() == "0" {
+			c.AddReplyStr(":0\r\n")
+		} else {
+			c.AddReplyStr(":-1\r\n")
+		}
+		return false, nil
 	}
 	bit := bitObj.Val_.(*data.Bitmap)
 	offset, err := bit.BitPos(c.args[2].StrVal())
 	if err != nil {
 		if err == errs.BitNotFoundError {
-			c.AddReplyStr("$-1\r\n")
+			c.AddReplyStr(":-1\r\n")
 			return false, nil
 		} else {
 			c.AddReplyStr(fmt.Sprintf("-ERR:%v\r\n", err))
@@ -1100,21 +1251,9 @@ func slowlogCommand(c *GodisClient) (bool, error) {
 			c.AddReplyStr("*0\r\n")
 			return false, nil
 		}
-		slowLogEntrys := server.Slowlog.Range(0, server.Slowlog.Length())
-		reply := ""
-		for i := 0; i < len(slowLogEntrys); i++ {
-			entry := slowLogEntrys[i]
-			if entry.Type_ != conf.GSLOWLOG {
-				c.AddReplyStr("-ERR wrong type\r\n")
-				return false, errs.TypeCheckError
-			}
-			slowLogEntry := entry.Val_.(*SlowLogEntry)
-			reply += fmt.Sprintf("%d) 1) (integer) %d\r\n   2) (integer) %d\r\n   3) (integer) %d\r\n   4) 1)%s\r\n", i+1, slowLogEntry.id, slowLogEntry.time, slowLogEntry.duration, slowLogEntry.robj[0].StrVal())
-			for j := 1; j < slowLogEntry.argc; j++ {
-				reply += fmt.Sprintf("      %d) %s\r\n", j+1, slowLogEntry.robj[j].StrVal())
-			}
-		}
-		c.AddReplyStr(reply)
+		reply := server.Slowlog.RangeSlowlog()
+
+		c.AddReplyBytes(reply)
 	case "len":
 		c.AddReplyStr(fmt.Sprintf(":%d\r\n", server.Slowlog.Length()))
 	case "reset":
@@ -1154,4 +1293,10 @@ func bgsaveCommand(c *GodisClient) (bool, error) {
 		c.AddReplyStr("+Background saving started\r\n")
 	}
 	return true, nil
+}
+
+func xaddCommand(c *GodisClient) (bool, error) {
+	c.AddReplyStr("$1\r\n1\r\n")
+	return true, nil
+
 }
