@@ -77,8 +77,8 @@ func InitGodisServerInstance(config *conf.Config, logger *logrus.Logger) (*Godis
 		workerID: config.WorkerID,
 		clients:  make(map[int]*GodisClient),
 		DB: &db.GodisDB{
-			Data:   data.DictCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}),
-			Expire: data.DictCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}),
+			Data:   data.DictCreate(),
+			Expire: data.DictCreate(),
 		},
 		logger:            logger,
 		AOF:               persistence.InitAOF(config, logger),

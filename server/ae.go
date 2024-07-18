@@ -235,6 +235,13 @@ func (loop *AeLoop) AeProcess(tes []*AeTimeEvent, fes []*AeFileEvent) {
 					client.ReadBuffer()
 					wg.Done()
 				}()
+			} else if fe.mask == AE_WRITABLE {
+				wg.Add(1)
+				client := fe.extra.(*GodisClient)
+				go func() {
+					client.SendReplyToClient(client.fd)
+					wg.Done()
+				}()
 			}
 		}
 		wg.Wait()

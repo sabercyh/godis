@@ -4,6 +4,7 @@ go 1.19
 
 require (
 	github.com/sirupsen/logrus v1.9.3
+	github.com/spaolacci/murmur3 v1.1.0
 	github.com/spf13/viper v1.18.2
 	golang.org/x/sys v0.15.0
 )

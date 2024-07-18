@@ -20,6 +20,7 @@ type AOF struct {
 	Appendfsync int               //0:always|1:everysec|2:no
 	Command     string            //待持久化的完整命令
 	when        int64             //上次刷盘时间
+	logEntry    *logrus.Entry
 }
 
 func InitAOF(config *conf.Config, logger *logrus.Logger) *AOF {
@@ -28,6 +29,7 @@ func InitAOF(config *conf.Config, logger *logrus.Logger) *AOF {
 		AppendOnly: config.AppendOnly,
 		when:       0,
 		Command:    "",
+		logEntry:   logger.WithFields(logrus.Fields{}),
 	}
 
 	// 若有AOF文件则直接打开，不存在则创建
@@ -130,9 +132,12 @@ func (aof *AOF) Save() error {
 	if n != len(aof.Command) || err != nil {
 		return errs.AOFBufferWriteError
 	}
-	err = aof.Buffer.Flush()
-	if err != nil {
-		return errs.AOFFileSaveError
-	}
+	go func() {
+		err := aof.Buffer.Flush()
+		if err != nil {
+			aof.logEntry.Error("flush aof buffer error")
+		}
+	}()
+
 	return nil
 }

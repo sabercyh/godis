@@ -471,7 +471,7 @@ func (rdb *RDB) LoadDict(buffer []byte, db *db.GodisDB) ([]byte, *data.Gobj, err
 		return nil, nil, errs.RDBLoadFailedError
 	}
 
-	dict := data.DictCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual})
+	dict := data.DictCreate()
 	var k, v *data.Gobj
 	for i := 0; i < length; i++ {
 		buffer, k, err = rdb.LoadSDS(buffer)
@@ -500,7 +500,7 @@ func (rdb *RDB) LoadSet(buffer []byte, db *db.GodisDB) ([]byte, *data.Gobj, erro
 	if err != nil {
 		return nil, nil, errs.RDBLoadFailedError
 	}
-	set := data.SetCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual})
+	set := data.SetCreate()
 	var k *data.Gobj
 	for i := 0; i < length; i++ {
 		buffer, k, err = rdb.LoadSDS(buffer)

@@ -503,7 +503,7 @@ func hsetCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		htObj = data.CreateObject(conf.GDICT, data.DictCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}))
+		htObj = data.CreateObject(conf.GDICT, data.DictCreate())
 		server.DB.Data.Set(key, htObj)
 
 	}
@@ -635,7 +635,7 @@ func saddCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		setObj = data.CreateObject(conf.GSET, data.SetCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}))
+		setObj = data.CreateObject(conf.GSET, data.SetCreate())
 		server.DB.Data.Set(key, setObj)
 	}
 	set := setObj.Val_.(*data.Set)
@@ -797,7 +797,7 @@ func sinterCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		setObj1 = data.CreateObject(conf.GSET, data.SetCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}))
+		setObj1 = data.CreateObject(conf.GSET, data.SetCreate())
 		server.DB.Data.Set(key1, setObj1)
 	}
 	set1 := setObj1.Val_.(*data.Set)
@@ -809,7 +809,7 @@ func sinterCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		setObj2 = data.CreateObject(conf.GSET, data.SetCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}))
+		setObj2 = data.CreateObject(conf.GSET, data.SetCreate())
 		server.DB.Data.Set(key2, setObj2)
 	}
 	set2 := setObj2.Val_.(*data.Set)
@@ -837,7 +837,7 @@ func sdiffCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		setObj1 = data.CreateObject(conf.GSET, data.SetCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}))
+		setObj1 = data.CreateObject(conf.GSET, data.SetCreate())
 		server.DB.Data.Set(key1, setObj1)
 	}
 	set1 := setObj1.Val_.(*data.Set)
@@ -849,7 +849,7 @@ func sdiffCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		setObj2 = data.CreateObject(conf.GSET, data.SetCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}))
+		setObj2 = data.CreateObject(conf.GSET, data.SetCreate())
 		server.DB.Data.Set(key2, setObj2)
 	}
 	set2 := setObj2.Val_.(*data.Set)
@@ -877,7 +877,7 @@ func sunionCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		setObj1 = data.CreateObject(conf.GSET, data.SetCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}))
+		setObj1 = data.CreateObject(conf.GSET, data.SetCreate())
 		server.DB.Data.Set(key1, setObj1)
 	}
 	set1 := setObj1.Val_.(*data.Set)
@@ -889,7 +889,7 @@ func sunionCommand(c *GodisClient) (bool, error) {
 			return false, errs.TypeCheckError
 		}
 	} else {
-		setObj2 = data.CreateObject(conf.GSET, data.SetCreate(data.DictType{HashFunc: data.GStrHash, EqualFunc: data.GStrEqual}))
+		setObj2 = data.CreateObject(conf.GSET, data.SetCreate())
 		server.DB.Data.Set(key2, setObj2)
 	}
 	set2 := setObj2.Val_.(*data.Set)

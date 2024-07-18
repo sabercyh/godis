@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/godis/conf"
 	"github.com/godis/data"
@@ -185,8 +186,7 @@ func lookupCommand(cmdStr string) *GodisCommand {
 	return nil
 }
 
-func SendReplyToClient(loop *AeLoop, fd int, extra any) {
-	client := extra.(*GodisClient)
+func (client *GodisClient) SendReplyToClient(fd int) {
 	// client.logEntry.Debugf("SendReplyToClient, reply len:%v\n", client.reply.Length())
 	for client.reply.Length() > 0 {
 		rep := client.reply.First()
@@ -196,7 +196,7 @@ func SendReplyToClient(loop *AeLoop, fd int, extra any) {
 			n, err := net.Write(fd, buf[client.sentLen:])
 			if err != nil {
 				client.logEntry.Errorf("send reply err: %v\n", err)
-				freeClient(client)
+				client.closed = true
 				return
 			}
 			client.sentLen += n
@@ -210,6 +210,16 @@ func SendReplyToClient(loop *AeLoop, fd int, extra any) {
 			}
 		}
 	}
+
+}
+
+func ReplyClient(loop *AeLoop, fd int, extra any) {
+	client := extra.(*GodisClient)
+	if client.closed {
+		freeClient(client)
+		return
+	}
+
 	if client.reply.Length() == 0 {
 		client.sentLen = 0
 		loop.RemoveWriteEvent(fd, AE_WRITABLE)
@@ -218,7 +228,7 @@ func SendReplyToClient(loop *AeLoop, fd int, extra any) {
 
 func (client *GodisClient) AddReply(o *data.Gobj) {
 	client.reply.Append(o)
-	server.AeLoop.ModWriteEvent(client.fd, AE_WRITABLE, SendReplyToClient, client)
+	server.AeLoop.ModWriteEvent(client.fd, AE_WRITABLE, ReplyClient, client)
 }
 
 func (client *GodisClient) AddReplyStr(str string) {
@@ -353,9 +363,15 @@ func (client *GodisClient) ReadQueryFromAOF() {
 }
 
 func freeArgs(client *GodisClient) {
+	var wg sync.WaitGroup
 	for i := range client.args {
-		client.args[i].DecrRefCount()
+		wg.Add(1)
+		go func(i int) {
+			client.args[i].DecrRefCount()
+			wg.Done()
+		}(i)
 	}
+	wg.Wait()
 	client.args = client.args[:0]
 }
 

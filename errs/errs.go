@@ -27,6 +27,12 @@ var (
 	RDBVersionError      = &GodisError{111, "rdb version error"}
 	RDBLoadFailedError   = &GodisError{112, "rdb load failed error"}
 	RDBFileDamagedError  = &GodisError{113, "rdb file damaged error"}
+	ExpandError          = &GodisError{114, "expand error"}
+	KeyExistsError       = &GodisError{115, "key exists error"}
+	KeyNotExistError     = &GodisError{116, "key not exists error"}
+	OutOfLimitError      = &GodisError{117, "cmd length out of limit error"}
+	WrongCmdError        = &GodisError{118, "wrong cmd error"}
+	DelKeyError          = &GodisError{119, "del key error"}
 )
 
 // 数据类型errors
@@ -40,14 +46,4 @@ var (
 	BitValueError           = &GodisError{1006, "bit is not an integer or out of range"}
 	BitOpError              = &GodisError{1007, "bitop error"}
 	NodeNotFoundError       = &GodisError{1008, "node not found error"}
-)
-
-// 通用errors
-var (
-	ExpandError      = &GodisError{10000, "expand error"}
-	KeyExistsError   = &GodisError{10001, "key exists error"}
-	KeyNotExistError = &GodisError{10002, "key not exists error"}
-	OutOfLimitError  = &GodisError{10003, "cmd length out of limit error"}
-	WrongCmdError    = &GodisError{10004, "wrong cmd error"}
-	DelKeyError      = &GodisError{10005, "del key error"}
 )
