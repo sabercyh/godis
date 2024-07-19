@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"runtime/pprof"
 
 	"github.com/godis/conf"
 	"github.com/godis/server"
@@ -10,6 +11,11 @@ import (
 )
 
 func main() {
+	f, _ := os.OpenFile("./cpu.pprof", os.O_CREATE|os.O_RDWR, 0644)
+	defer f.Close()
+	pprof.StartCPUProfile(f)
+	defer pprof.StopCPUProfile()
+
 	var log = logrus.New()
 	log.Out = os.Stdout // 设置输出日志位置，可以设置日志到file里
 	log.SetFormatter(&logrus.TextFormatter{

@@ -34,7 +34,8 @@ func NewGodisCommand(name string, proc CommandProc, arity int, isModify bool) *G
 
 var cmdTable = map[string]*GodisCommand{
 	// system
-	"ping": NewGodisCommand("ping", pingCommand, 1, false),
+	"ping":     NewGodisCommand("ping", pingCommand, 1, false),
+	"shutdown": NewGodisCommand("shutdown", shutdownCommand, 1, false),
 	// string
 	"set":    NewGodisCommand("set", setCommand, 3, true),
 	"mset":   NewGodisCommand("mset", msetCommand, MULTI_ARGS_COMMAND, true),
@@ -90,9 +91,6 @@ var cmdTable = map[string]*GodisCommand{
 	"slowlog": NewGodisCommand("slowlog", slowlogCommand, 2, false),
 	"save":    NewGodisCommand("save", saveCommand, 1, false),
 	"bgsave":  NewGodisCommand("bgsave", bgsaveCommand, 1, false),
-
-	// Undo
-	"xadd": NewGodisCommand("xadd", xaddCommand, 5, false),
 }
 
 func expireIfNeeded(key *data.Gobj) {
@@ -118,6 +116,11 @@ func findKeyRead(key *data.Gobj) *data.Gobj {
 
 func pingCommand(c *GodisClient) (bool, error) {
 	c.AddReplyStr("+PONG\r\n")
+	return true, nil
+}
+
+func shutdownCommand(c *GodisClient) (bool, error) {
+	server.AeLoop.stop = true
 	return true, nil
 }
 func setCommand(c *GodisClient) (bool, error) {
@@ -1293,10 +1296,4 @@ func bgsaveCommand(c *GodisClient) (bool, error) {
 		c.AddReplyStr("+Background saving started\r\n")
 	}
 	return true, nil
-}
-
-func xaddCommand(c *GodisClient) (bool, error) {
-	c.AddReplyStr("$1\r\n1\r\n")
-	return true, nil
-
 }

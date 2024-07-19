@@ -257,4 +257,13 @@ func (loop *AeLoop) AeMain() {
 		tes, fes := loop.AeWait()
 		loop.AeProcess(tes, fes)
 	}
+
+	for _, client := range server.clients {
+		freeClient(client)
+	}
+
+	server.AOF.Buffer.Flush()
+	server.AOF.File.Close()
+
+	loop.logger.Infoln("ae loop exit")
 }
