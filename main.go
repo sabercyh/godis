@@ -11,11 +11,6 @@ import (
 )
 
 func main() {
-	f, _ := os.OpenFile("./cpu.pprof", os.O_CREATE|os.O_RDWR, 0644)
-	defer f.Close()
-	pprof.StartCPUProfile(f)
-	defer pprof.StopCPUProfile()
-
 	var log = logrus.New()
 	log.Out = os.Stdout // 设置输出日志位置，可以设置日志到file里
 	log.SetFormatter(&logrus.TextFormatter{
@@ -25,6 +20,13 @@ func main() {
 	})
 	log.SetReportCaller(true)
 	// log.SetLevel(logrus.DebugLevel)
+
+	if log.Level == logrus.DebugLevel {
+		f, _ := os.OpenFile("./cpu.pprof", os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0644)
+		defer f.Close()
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+	}
 
 	var config conf.Config
 	viper.AddConfigPath("./conf/")
@@ -41,6 +43,8 @@ func main() {
 	if err != nil {
 		log.Errorf("[msg: init server failed] [err: %v]\r\n", err)
 	}
+
+	log.Infof("[msg: init Godis Server success] [%#v]\r\n", server)
 
 	log.Info("[msg: Godis is running]\r\n")
 	server.AeLoop.AeMain()

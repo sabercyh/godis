@@ -2,6 +2,7 @@ package server
 
 import (
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/godis/conf"
@@ -30,6 +31,7 @@ type GodisServer struct {
 	SlowLogMaxLen     int
 
 	MaxClients int
+	MaxThreads int
 }
 
 var server *GodisServer // 定义server全局变量
@@ -87,6 +89,7 @@ func InitGodisServerInstance(config *conf.Config, logger *logrus.Logger) (*Godis
 		SlowLogSlowerThan: config.SlowLogSlowerThan,
 		SlowLogMaxLen:     config.SlowLogMaxLen,
 		MaxClients:        config.MaxClients,
+		MaxThreads:        runtime.NumCPU(),
 	}
 
 	if server.AOF.AppendOnly {
