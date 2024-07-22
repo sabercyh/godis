@@ -1,9 +1,11 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/godis/conf"
 	"github.com/godis/data"
@@ -20,8 +22,7 @@ type GodisClient struct {
 	fd       int
 	db       *db.GodisDB
 	args     []*data.Gobj
-	reply    *data.List
-	sentLen  int
+	reply    *bytes.Buffer
 	queryBuf []byte
 	queryLen int
 	cmdTy    conf.CmdType
@@ -36,7 +37,7 @@ func InitGodisClientInstance(fd int, server *GodisServer) *GodisClient {
 		fd:       fd,
 		db:       server.DB,
 		queryBuf: make([]byte, conf.GODIS_IO_BUF),
-		reply:    data.ListCreate(data.ListType{EqualFunc: data.GStrEqual}),
+		reply:    bytes.NewBuffer(make([]byte, 0, conf.GODIS_MAX_BULK)),
 		logEntry: server.logger.WithFields(logrus.Fields{
 			"clientFD": fd,
 		}),
@@ -185,54 +186,43 @@ func lookupCommand(cmdStr string) *GodisCommand {
 	return nil
 }
 
-func SendReplyToClient(loop *AeLoop, fd int, extra any) {
-	client := extra.(*GodisClient)
+func SendReplyToClient(fd int) {
 	// client.logEntry.Debugf("SendReplyToClient, reply len:%v\n", client.reply.Length())
-	for client.reply.Length() > 0 {
-		rep := client.reply.First()
-		buf := rep.Val.Val_.([]byte)
-		bufLen := len(buf)
-		if client.sentLen < bufLen {
-			n, err := net.Write(fd, buf[client.sentLen:])
-			if err != nil {
-				client.logEntry.Errorf("send reply err: %v\n", err)
-				freeClient(client)
-				return
-			}
-			client.sentLen += n
-			// client.logEntry.Debugf("send %v bytes to client:%v\n", n, client.fd)
-			if client.sentLen == bufLen {
-				client.reply.DelNode(rep)
-				rep.Val.DecrRefCount()
-				client.sentLen = 0
-			} else {
-				break
-			}
+	client := server.clients[fd]
+	if client.reply.Len() > 0 {
+		n, err := net.Write(client.fd, client.reply.Bytes())
+
+		if err != nil && n != client.reply.Len() {
+			client.logEntry.Errorf("send reply err: %v\n", err)
+			client.closed = true
+			return
 		}
-	}
-	if client.reply.Length() == 0 {
-		client.sentLen = 0
-		loop.RemoveWriteEvent(fd, AE_WRITABLE)
 	}
 }
 
-func (client *GodisClient) AddReply(o *data.Gobj) {
-	client.reply.Append(o)
-	server.AeLoop.ModWriteEvent(client.fd, AE_WRITABLE, SendReplyToClient, client)
+func ReplyClient(loop *AeLoop, fd int, extra any) {
+	client := extra.(*GodisClient)
+	if client.closed {
+		freeClient(client)
+		return
+	}
+	client.reply = bytes.NewBuffer(make([]byte, 0, conf.GODIS_MAX_BULK))
+	loop.RemoveWriteEvent(fd, AE_WRITABLE)
 }
 
 func (client *GodisClient) AddReplyStr(str string) {
 	if client.fd != -1 {
 		bytes := util.StringToBytes(str)
-		o := data.CreateObject(conf.GBYTES, bytes)
-		client.AddReply(o)
+		client.reply.Write(bytes)
+		server.AeLoop.ModWriteEvent(client.fd, AE_WRITABLE, ReplyClient, client)
+
 	}
 }
 
 func (client *GodisClient) AddReplyBytes(bytes []byte) {
 	if client.fd != -1 {
-		o := data.CreateObject(conf.GBYTES, bytes)
-		client.AddReply(o)
+		client.reply.Write(bytes)
+		server.AeLoop.ModWriteEvent(client.fd, AE_WRITABLE, ReplyClient, client)
 	}
 }
 func ProcessCommand(c *GodisClient) {
@@ -353,34 +343,33 @@ func (client *GodisClient) ReadQueryFromAOF() {
 }
 
 func freeArgs(client *GodisClient) {
+	var wg sync.WaitGroup
 	for i := range client.args {
-		client.args[i].DecrRefCount()
+		wg.Add(1)
+		go func(i int) {
+			client.args[i].DecrRefCount()
+			wg.Done()
+		}(i)
 	}
+	wg.Wait()
 	client.args = client.args[:0]
 }
 
-func freeReplyList(client *GodisClient) {
-	for client.reply.Length() != 0 {
-		n := client.reply.Head
-		client.reply.DelNode(n)
-		n.Val.DecrRefCount()
-	}
-}
 func freeClient(client *GodisClient) {
 	freeArgs(client)
 	delete(server.clients, client.fd)
 	server.AeLoop.RemoveFileEvent(client.fd, AE_READABLE)
-	freeReplyList(client)
 	net.Close(client.fd)
 }
 
 func freeAOFClient(client *GodisClient) {
 	freeArgs(client)
 	delete(server.clients, client.fd)
-	freeReplyList(client)
 }
 
-func (client *GodisClient) ReadBuffer() {
+func ReadBuffer(fd int) {
+	client := server.clients[fd]
+
 	if len(client.queryBuf)-client.queryLen < conf.GODIS_MAX_BULK {
 		client.queryBuf = append(client.queryBuf, make([]byte, conf.GODIS_MAX_BULK)...)
 	}

@@ -5,9 +5,9 @@ type Set struct {
 	length int
 }
 
-func SetCreate(dictType DictType) *Set {
+func SetCreate() *Set {
 	return &Set{
-		Dict:   DictCreate(dictType),
+		Dict:   DictCreate(),
 		length: 0,
 	}
 }

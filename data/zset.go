@@ -12,7 +12,7 @@ type ZSet struct {
 
 func NewZset() *ZSet {
 	return &ZSet{
-		Dict:     DictCreate(DictType{HashFunc: GStrHash, EqualFunc: GStrEqual}),
+		Dict:     DictCreate(),
 		skiplist: NewSkipList(),
 	}
 }

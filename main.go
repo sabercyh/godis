@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"runtime/pprof"
 
 	"github.com/godis/conf"
 	"github.com/godis/server"
@@ -20,6 +21,13 @@ func main() {
 	log.SetReportCaller(true)
 	// log.SetLevel(logrus.DebugLevel)
 
+	if log.Level == logrus.DebugLevel {
+		f, _ := os.OpenFile("./cpu.pprof", os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0644)
+		defer f.Close()
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
+	}
+
 	var config conf.Config
 	viper.AddConfigPath("./conf/")
 	viper.SetConfigName("godis-conf")
@@ -35,6 +43,8 @@ func main() {
 	if err != nil {
 		log.Errorf("[msg: init server failed] [err: %v]\r\n", err)
 	}
+
+	log.Infof("[msg: init Godis Server success] [%#v]\r\n", server)
 
 	log.Info("[msg: Godis is running]\r\n")
 	server.AeLoop.AeMain()

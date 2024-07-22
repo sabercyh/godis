@@ -8,6 +8,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+var wg sync.WaitGroup
+
 type FeType int
 
 const (
@@ -217,7 +219,6 @@ retry:
 }
 
 func (loop *AeLoop) AeProcess(tes []*AeTimeEvent, fes []*AeFileEvent) {
-	var wg sync.WaitGroup
 	for _, te := range tes {
 		te.proc(loop, te.id, te.extra)
 		if te.mask == AE_ONCE {
@@ -230,11 +231,16 @@ func (loop *AeLoop) AeProcess(tes []*AeTimeEvent, fes []*AeFileEvent) {
 		for _, fe := range fes {
 			if fe.mask == AE_READABLE && fe.fd != server.fd {
 				wg.Add(1)
-				client := fe.extra.(*GodisClient)
-				go func() {
-					client.ReadBuffer()
+				go func(fd int) {
+					ReadBuffer(fd)
 					wg.Done()
-				}()
+				}(fe.fd)
+			} else if fe.mask == AE_WRITABLE {
+				wg.Add(1)
+				go func(fd int) {
+					SendReplyToClient(fd)
+					wg.Done()
+				}(fe.fd)
 			}
 		}
 		wg.Wait()
@@ -250,4 +256,13 @@ func (loop *AeLoop) AeMain() {
 		tes, fes := loop.AeWait()
 		loop.AeProcess(tes, fes)
 	}
+
+	for _, client := range server.clients {
+		freeClient(client)
+	}
+
+	server.AOF.Buffer.Flush()
+	server.AOF.File.Close()
+
+	loop.logger.Infoln("ae loop exit")
 }

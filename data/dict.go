@@ -1,10 +1,14 @@
 package data
 
 import (
+	"hash"
 	"math"
 	"math/rand"
 
+	"github.com/godis/conf"
 	"github.com/godis/errs"
+	"github.com/godis/util"
+	"github.com/spaolacci/murmur3"
 )
 
 const (
@@ -27,15 +31,10 @@ type htable struct {
 	used  int64
 }
 
-type DictType struct {
-	HashFunc  func(key *Gobj) int64
-	EqualFunc func(k1, k2 *Gobj) bool
-}
-
 type Dict struct {
-	DictType
 	hts       [2]*htable
 	rehashidx int64
+	h         hash.Hash64
 	// iterators
 }
 
@@ -47,12 +46,24 @@ type dictIterator struct {
 	Gobjs   [][2]*Gobj
 }
 
-func DictCreate(dictType DictType) *Dict {
+func DictCreate() *Dict {
 	var dict Dict
-	dict.DictType = dictType
 	dict.rehashidx = -1
+	dict.h = murmur3.New64()
 	return &dict
 }
+
+func (dict *Dict) GStrHash(key *Gobj) int64 {
+	if key.Type_ != conf.GSTR {
+		return 0
+	}
+	dict.h.Write(util.StringToBytes(key.StrVal()))
+	hashKey := int64(dict.h.Sum64())
+	dict.h.Reset()
+	return hashKey
+}
+
+
 
 func dictIteratorCreate(dict *Dict) *dictIterator {
 	return &dictIterator{
@@ -108,7 +119,7 @@ func (dict *Dict) rehash(step int) {
 		entry := dict.hts[0].table[dict.rehashidx]
 		for entry != nil {
 			ne := entry.next
-			idx := dict.HashFunc(entry.Key) & dict.hts[1].mask
+			idx := dict.GStrHash(entry.Key) & dict.hts[1].mask
 			entry.next = dict.hts[1].table[idx]
 			dict.hts[1].table[idx] = entry
 			dict.hts[0].used--
@@ -175,13 +186,13 @@ func (dict *Dict) keyIndex(key *Gobj) int64 {
 	if err != nil {
 		return -1
 	}
-	h := dict.HashFunc(key)
+	h := dict.GStrHash(key)
 	var idx int64
 	for i := 0; i <= 1; i++ {
 		idx = h & dict.hts[i].mask
 		e := dict.hts[i].table[idx]
 		for e != nil {
-			if dict.EqualFunc(e.Key, key) {
+			if GStrEqual(e.Key, key) {
 				return -1
 			}
 			e = e.next
@@ -258,13 +269,13 @@ func (dict *Dict) Delete(key *Gobj) error {
 	if dict.isRehashing() {
 		dict.rehashStep()
 	}
-	h := dict.HashFunc(key)
+	h := dict.GStrHash(key)
 	for i := 0; i <= 1; i++ {
 		idx := h & dict.hts[i].mask
 		e := dict.hts[i].table[idx]
 		var prev *Entry
 		for e != nil {
-			if dict.EqualFunc(e.Key, key) {
+			if GStrEqual(e.Key, key) {
 				if prev == nil {
 					dict.hts[i].table[idx] = e.next
 				} else {
@@ -292,12 +303,12 @@ func (dict *Dict) Find(key *Gobj) *Entry {
 		dict.rehashStep()
 	}
 	// find key in both ht
-	h := dict.HashFunc(key)
+	h := dict.GStrHash(key)
 	for i := 0; i <= 1; i++ {
 		idx := h & dict.hts[i].mask
 		e := dict.hts[i].table[idx]
 		for e != nil {
-			if dict.EqualFunc(e.Key, key) {
+			if GStrEqual(e.Key, key) {
 				return e
 			}
 			e = e.next

@@ -1,7 +1,6 @@
 package data
 
 import (
-	"hash/fnv"
 	"strconv"
 
 	"github.com/godis/conf"
@@ -103,14 +102,4 @@ func GStrEqual(a, b *Gobj) bool {
 		return false
 	}
 	return a.StrVal() == b.StrVal()
-}
-
-// GStrHash 用于唯一标识一个Godis Object
-func GStrHash(key *Gobj) int64 {
-	if key.Type_ != conf.GSTR {
-		return 0
-	}
-	hash := fnv.New64()
-	hash.Write([]byte(key.StrVal()))
-	return int64(hash.Sum64())
 }
