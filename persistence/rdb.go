@@ -12,7 +12,7 @@ import (
 	"github.com/godis/db"
 	"github.com/godis/errs"
 	"github.com/godis/util"
-	"github.com/sirupsen/logrus"
+	"github.com/rs/zerolog"
 )
 
 type RDB struct {
@@ -20,18 +20,18 @@ type RDB struct {
 	Filename       string //RDB文件名
 	RDBCheckSum    bool
 	RDBCompression bool
-	log            *logrus.Logger
+	log            zerolog.Logger
 	isRDBSave      bool
 	CheckSum       uint64
 }
 
-func InitRDB(config *conf.Config, logger *logrus.Logger) *RDB {
+func InitRDB(config *conf.Config, logger *zerolog.Logger) *RDB {
 	return &RDB{
 		Buffer:         make([]byte, conf.RDB_BUF_BLOCK_SIZE),
 		Filename:       config.DBFilename,
 		RDBCheckSum:    config.RDBCheckSum,
 		RDBCompression: config.RDBCompression,
-		log:            logger,
+		log:            logger.With().Logger(),
 	}
 }
 
@@ -48,7 +48,7 @@ func (rdb *RDB) Save(db *db.GodisDB) error {
 	}()
 	err := rdb.save(db)
 	if err != nil {
-		rdb.log.Errorf("rdb save failed, err:%v", err)
+		rdb.log.Error().Err(err).Msg("rdb save failed")
 		return err
 	}
 	return nil
@@ -67,14 +67,14 @@ func (rdb *RDB) BgSave(db *db.GodisDB) error {
 	if id == 0 {
 		err := rdb.save(db)
 		if err != nil {
-			rdb.log.Errorf("rdb bgsave failed, err:%v", err)
+			rdb.log.Error().Err(err).Msg("rdb bgsave failed")
 			return err
 		}
 		os.Exit(0)
 	} else if id > 0 {
-		rdb.log.Infof("start rdb bgsave")
+		rdb.log.Info().Msg("start rdb bgsave")
 	} else {
-		rdb.log.Errorf("fork failed")
+		rdb.log.Error().Msg("fork failed")
 		return errs.ForkError
 	}
 	return nil
@@ -84,7 +84,7 @@ func (rdb *RDB) save(db *db.GodisDB) error {
 	tempFilename := fmt.Sprintf("temp-%d.rdb", util.GetMsTime())
 	tempFile, err := os.Create(tempFilename)
 	if err != nil {
-		rdb.log.Errorf("create tempfile %s failed, err:%v", tempFilename, err)
+		rdb.log.Error().Err(err).Msgf("create tempfile %s", tempFilename)
 		return err
 	}
 	defer func() {
@@ -101,14 +101,14 @@ func (rdb *RDB) save(db *db.GodisDB) error {
 	for _, obj := range Gobjs {
 		key, val := obj[0], obj[1]
 		if err := rdb.Persist(db, buffer, key, val); err != nil {
-			rdb.log.Errorf("persist key:%s failed, err:%v", key.StrVal(), err)
+			rdb.log.Error().Err(err).Msgf("persist key:%s failed", key.StrVal())
 		}
 	}
 
 	buffer.WriteByte(byte(conf.RDB_OPCODE_EOF))
 	if rdb.RDBCheckSum {
 		checksumNum := util.CheckSumCreate(buffer.Bytes())
-		rdb.log.Infof("rdb checksum:%d\r\n", checksumNum)
+		rdb.log.Info().Msgf("rdb checksum:%d", checksumNum)
 		checksum := make([]byte, 8)
 		binary.BigEndian.PutUint64(checksum, checksumNum)
 		buffer.Write(checksum)
@@ -223,7 +223,7 @@ func (rdb *RDB) checkExpire(db *db.GodisDB, buffer *bytes.Buffer, key *data.Gobj
 		expireTimeSlice := make([]byte, 8)
 		expireTime, err := expireKey.IntVal()
 		if err != nil {
-			rdb.log.Errorf("get expire key %s failed, err:%v", key.StrVal(), err)
+			rdb.log.Error().Err(err).Msgf("get expire key %s failed", key.StrVal())
 			return
 		}
 		binary.BigEndian.PutUint64(expireTimeSlice, uint64(expireTime))
@@ -258,11 +258,11 @@ func (rdb *RDB) WriteLen(buffer *bytes.Buffer, length int) (bool, error) {
 func (rdb *RDB) Load(db *db.GodisDB) error {
 	_, err := os.Stat(rdb.Filename)
 	if os.IsNotExist(err) {
-		rdb.log.Errorf("rdb file %s not exist", rdb.Filename)
+		rdb.log.Error().Err(err).Msgf("rdb file %s not exist", rdb.Filename)
 		return errs.RDBFileNotExistError
 	}
 	if err != nil {
-		rdb.log.Errorf("stat rdb file %s failed, err:%v", rdb.Filename, err)
+		rdb.log.Error().Err(err).Msgf("stat rdb file %s failed", rdb.Filename)
 		return err
 	}
 	return rdb.load(db)
@@ -271,7 +271,7 @@ func (rdb *RDB) Load(db *db.GodisDB) error {
 func (rdb *RDB) load(db *db.GodisDB) error {
 	file, err := os.Open(rdb.Filename)
 	if err != nil {
-		rdb.log.Errorf("open rdb file %s failed, err:%v", rdb.Filename, err)
+		rdb.log.Error().Err(err).Msgf("open rdb file %s failed", rdb.Filename)
 		return err
 	}
 	defer file.Close()
@@ -279,7 +279,7 @@ func (rdb *RDB) load(db *db.GodisDB) error {
 	buffer := make([]byte, conf.RDB_BUF_BLOCK_SIZE)
 	n, err := file.Read(buffer)
 	if err != nil {
-		rdb.log.Errorf("read rdb file %s failed, err:%v", rdb.Filename, err)
+		rdb.log.Error().Err(err).Msgf("read rdb file %s failed", rdb.Filename)
 		return err
 	}
 	// rdb.log.Debugln(buffer[9:n])
@@ -287,19 +287,19 @@ func (rdb *RDB) load(db *db.GodisDB) error {
 		getChecksum := binary.BigEndian.Uint64(buffer[n-8 : n])
 		expectChecksum := util.CheckSumCreate(buffer[:n-8])
 		if expectChecksum != getChecksum {
-			rdb.log.Errorf("rdb file checksum not match,expect:%d,get:%d", expectChecksum, getChecksum)
+			rdb.log.Error().Msgf("rdb file checksum not match,expect:%d,get:%d", expectChecksum, getChecksum)
 			return errs.RDBFileDamagedError
 		}
 	}
 
 	buffer, err = rdb.checkAppName(buffer)
 	if err != nil {
-		rdb.log.Errorf("check rdb file %s appname failed, err:%v", rdb.Filename, err)
+		rdb.log.Error().Err(err).Msgf("check rdb file %s appname failed", rdb.Filename)
 		return err
 	}
 	buffer, err = rdb.checkVersion(buffer)
 	if err != nil {
-		rdb.log.Errorf("check rdb file %s version failed, err:%v", rdb.Filename, err)
+		rdb.log.Error().Err(err).Msgf("check rdb file %s version failed", rdb.Filename)
 		return err
 	}
 
@@ -312,7 +312,7 @@ func (rdb *RDB) load(db *db.GodisDB) error {
 			buffer, ex, err = rdb.LoadNumber(buffer[1:])
 			expireTime = int64(ex)
 			if err != nil {
-				rdb.log.Errorf("load rdb file %s expiretime failed, err:%v", rdb.Filename, err)
+				rdb.log.Error().Err(err).Msgf("load rdb file %s expiretime failed", rdb.Filename)
 				return err
 			}
 		case conf.RDB_OPCODE_EOF:
@@ -321,7 +321,7 @@ func (rdb *RDB) load(db *db.GodisDB) error {
 			var key *data.Gobj
 			buffer, key, err = rdb.LoadCommand(buffer, db)
 			if err != nil {
-				rdb.log.Errorf("load rdb file %s command failed, err:%v", rdb.Filename, err)
+				rdb.log.Error().Err(err).Msgf("load rdb file %s command failed", rdb.Filename)
 				return err
 			}
 			if expireTime != -1 {
@@ -335,7 +335,7 @@ func (rdb *RDB) load(db *db.GodisDB) error {
 
 func (rdb *RDB) checkAppName(buffer []byte) ([]byte, error) {
 	if string(buffer[:conf.RDB_APPNAME_LEN]) != conf.RDB_APPNAME {
-		rdb.log.Errorf("rdb file %s is not godis rdb file", rdb.Filename)
+		rdb.log.Error().Msgf("rdb file %s is not godis rdb file", rdb.Filename)
 		return nil, errs.RDBAppNameError
 	}
 	buffer = buffer[conf.RDB_APPNAME_LEN:]
@@ -344,7 +344,7 @@ func (rdb *RDB) checkAppName(buffer []byte) ([]byte, error) {
 
 func (rdb *RDB) checkVersion(buffer []byte) ([]byte, error) {
 	if string(buffer[:conf.RDB_VERSION_LEN]) != conf.RDB_VERSION {
-		rdb.log.Errorf("rdb file %s version err", rdb.Filename)
+		rdb.log.Error().Msgf("rdb file %s version err", rdb.Filename)
 		return nil, errs.RDBVersionError
 	}
 	buffer = buffer[conf.RDB_VERSION_LEN:]

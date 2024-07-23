@@ -13,7 +13,7 @@ import (
 	"github.com/godis/errs"
 	"github.com/godis/net"
 	"github.com/godis/util"
-	"github.com/sirupsen/logrus"
+	"github.com/rs/zerolog"
 )
 
 const sub = 'a' - 'A'
@@ -28,7 +28,7 @@ type GodisClient struct {
 	cmdTy    conf.CmdType
 	bulkNum  int
 	bulkLen  int
-	logEntry *logrus.Entry
+	logEntry zerolog.Logger
 	closed   bool
 }
 
@@ -38,10 +38,8 @@ func InitGodisClientInstance(fd int, server *GodisServer) *GodisClient {
 		db:       server.DB,
 		queryBuf: make([]byte, conf.GODIS_IO_BUF),
 		reply:    bytes.NewBuffer(make([]byte, 0, conf.GODIS_MAX_BULK)),
-		logEntry: server.logger.WithFields(logrus.Fields{
-			"clientFD": fd,
-		}),
-		closed: false,
+		logEntry: server.logger.With().Int("client-fd", fd).Logger(),
+		closed:   false,
 	}
 }
 
@@ -193,7 +191,7 @@ func SendReplyToClient(fd int) {
 		n, err := net.Write(client.fd, client.reply.Bytes())
 
 		if err != nil && n != client.reply.Len() {
-			client.logEntry.Errorf("send reply err: %v\n", err)
+			client.logEntry.Error().Err(err).Msg("send reply failed")
 			client.closed = true
 			return
 		}
@@ -207,7 +205,7 @@ func ReplyClient(loop *AeLoop, fd int, extra any) {
 		return
 	}
 	client.reply = bytes.NewBuffer(make([]byte, 0, conf.GODIS_MAX_BULK))
-	loop.RemoveWriteEvent(fd, AE_WRITABLE)
+	loop.ModReadEvent(fd)
 }
 
 func (client *GodisClient) AddReplyStr(str string) {
@@ -260,14 +258,14 @@ func ProcessCommand(c *GodisClient) {
 		}
 		server.Slowlog.LPush(data.CreateObject(conf.GSLOWLOG, &data.SlowLogEntry{
 			ID: func() int64 {
-				s, err := util.NewSnowFlake(c.logEntry.Logger, server.workerID)
+				s, err := util.NewSnowFlake(c.logEntry, server.workerID)
 				if err != nil {
-					c.logEntry.Errorf("NewSnowFlake failed: %v\n", err)
+					c.logEntry.Error().Err(err).Msg("NewSnowFlake failed")
 					return 0
 				}
 				id, err := s.NextID()
 				if err != nil {
-					c.logEntry.Errorf("Generate SnowFlake ID failed: %v\n", err)
+					c.logEntry.Error().Err(err).Msg("Generate SnowFlake ID failed")
 					return 0
 				}
 				return id
@@ -289,12 +287,12 @@ func ProcessCommand(c *GodisClient) {
 		if cmd.name == "expire" {
 			err := server.AOF.PersistExpireCommand(c.args)
 			if err != nil {
-				c.logEntry.Errorf("AOF persist failed. Command: %v Appendfsync: %d Err: %v\r\n", server.AOF.Command, server.AOF.Appendfsync, err)
+				c.logEntry.Error().Err(err).Msgf("AOF persist failed. Command: %v Appendfsync: %d", server.AOF.Command, server.AOF.Appendfsync)
 			}
 		} else {
 			err := server.AOF.PersistCommand(c.args)
 			if err != nil {
-				c.logEntry.Errorf("AOF persist failed. Command: %v Appendfsync: %d Err: %v\r\n", server.AOF.Command, server.AOF.Appendfsync, err)
+				c.logEntry.Error().Err(err).Msgf("AOF persist failed. Command: %v Appendfsync: %d", server.AOF.Command, server.AOF.Appendfsync)
 			}
 		}
 		resetClient(c)
@@ -311,7 +309,7 @@ func ReadQueryFromClient(loop *AeLoop, fd int, extra any) {
 	// client.logEntry.Debugf("ReadQueryFromClient, queryBuf : %v\n", string(client.queryBuf))
 	err := ProcessQueryBuf(client)
 	if err != nil {
-		client.logEntry.Errorf("process query buf err: %v\n", err)
+		client.logEntry.Error().Err(err).Msg("process query buf")
 		freeClient(client)
 		return
 	}
@@ -358,7 +356,7 @@ func freeArgs(client *GodisClient) {
 func freeClient(client *GodisClient) {
 	freeArgs(client)
 	delete(server.clients, client.fd)
-	server.AeLoop.RemoveFileEvent(client.fd, AE_READABLE)
+	server.AeLoop.RemoveFileEvent(client.fd)
 	net.Close(client.fd)
 }
 
@@ -375,7 +373,7 @@ func ReadBuffer(fd int) {
 	}
 	n, err := net.Read(client.fd, client.queryBuf[client.queryLen:])
 	if err != nil {
-		client.logEntry.Errorf("client %v read err: %v\n", client.fd, err)
+		client.logEntry.Error().Err(err).Msgf("client %d read", client.fd)
 		client.closed = true
 		return
 	}

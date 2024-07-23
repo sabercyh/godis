@@ -10,7 +10,7 @@ import (
 	"github.com/godis/data"
 	"github.com/godis/errs"
 	"github.com/godis/util"
-	"github.com/sirupsen/logrus"
+	"github.com/rs/zerolog"
 )
 
 type AOF struct {
@@ -20,22 +20,22 @@ type AOF struct {
 	Appendfsync int               //0:always|1:everysec|2:no
 	Command     string            //待持久化的完整命令
 	when        int64             //上次刷盘时间
-	logEntry    *logrus.Entry
+	logEntry    zerolog.Logger
 }
 
-func InitAOF(config *conf.Config, logger *logrus.Logger) *AOF {
+func InitAOF(config *conf.Config, logger *zerolog.Logger) *AOF {
 	var err error
 	aof := &AOF{
 		AppendOnly: config.AppendOnly,
 		when:       0,
 		Command:    "",
-		logEntry:   logger.WithFields(logrus.Fields{}),
+		logEntry:   logger.With().Logger(),
 	}
 
 	// 若有AOF文件则直接打开，不存在则创建
 	aof.File, err = os.OpenFile(config.Dir+config.AppendFilename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
-		logger.Info("open aof file\r\n")
+		logger.Error().Msg("open aof file failed")
 	}
 	aof.Buffer = bufio.NewReadWriter(bufio.NewReader(aof.File), bufio.NewWriterSize(aof.File, conf.AOF_BUF_BLOCK_SIZE))
 
@@ -135,7 +135,7 @@ func (aof *AOF) Save() error {
 	go func() {
 		err := aof.Buffer.Flush()
 		if err != nil {
-			aof.logEntry.Error("flush aof buffer error")
+			aof.logEntry.Error().Msg("flush aof buffer error")
 		}
 	}()
 

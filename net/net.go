@@ -1,7 +1,7 @@
 package net
 
 import (
-	"github.com/sirupsen/logrus"
+	"github.com/rs/zerolog"
 	"golang.org/x/sys/unix"
 )
 
@@ -25,15 +25,15 @@ func Close(fd int) {
 	unix.Close(fd)
 }
 
-func TcpServer(port int, logger *logrus.Logger) (int, error) {
+func TcpServer(port int, logger *zerolog.Logger) (int, error) {
 	s, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, 0)
 	if err != nil {
-		logger.Printf("init socket err: %v\n", err)
+		logger.Error().Err(err).Msg("init socket failed")
 		return -1, nil
 	}
 	err = unix.SetsockoptInt(s, unix.SOL_SOCKET, unix.SO_REUSEPORT, port)
 	if err != nil {
-		logger.Printf("set SO_REUSEPORT err: %v\n", err)
+		logger.Error().Err(err).Msg("set SO_REUSEPORT failed")
 		unix.Close(s)
 		return -1, nil
 	}
@@ -43,13 +43,13 @@ func TcpServer(port int, logger *logrus.Logger) (int, error) {
 	// golang will set addr.Addr = any(0)
 	err = unix.Bind(s, &addr)
 	if err != nil {
-		logger.Printf("bind addr err: %v\n", err)
+		logger.Error().Err(err).Msg("bind addr failed")
 		unix.Close(s)
 		return -1, nil
 	}
 	err = unix.Listen(s, BACKLOG)
 	if err != nil {
-		logger.Printf("listen socket err: %v\n", err)
+		logger.Error().Err(err).Msg("listen socket failed")
 		unix.Close(s)
 		return -1, nil
 	}
