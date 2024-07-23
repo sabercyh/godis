@@ -3,49 +3,44 @@ package main
 import (
 	"os"
 	"runtime/pprof"
+	"time"
 
 	"github.com/godis/conf"
 	"github.com/godis/server"
-	"github.com/sirupsen/logrus"
+	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
 )
 
 func main() {
-	var log = logrus.New()
-	log.Out = os.Stdout // 设置输出日志位置，可以设置日志到file里
-	log.SetFormatter(&logrus.TextFormatter{
-		ForceQuote:      true,                  //键值对加引号
-		TimestampFormat: "2006-01-02 15:04:05", //时间格式
-		FullTimestamp:   true,
-	})
-	log.SetReportCaller(true)
-	// log.SetLevel(logrus.DebugLevel)
+	log := zerolog.
+		New(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.DateTime}).
+		Level(zerolog.InfoLevel).
+		With().Caller().
+		Timestamp().
+		Logger()
 
-	if log.Level == logrus.DebugLevel {
+	if log.GetLevel() == zerolog.DebugLevel {
 		f, _ := os.OpenFile("./cpu.pprof", os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0644)
 		defer f.Close()
 		pprof.StartCPUProfile(f)
 		defer pprof.StopCPUProfile()
 	}
-
 	var config conf.Config
 	viper.AddConfigPath("./conf/")
 	viper.SetConfigName("godis-conf")
 	if err := viper.ReadInConfig(); err != nil {
-		log.Errorf("[msg: load godis config failed] [err: %v]\r\n", err)
+		log.Error().Err(err).Msg("load godis config failed")
 	}
 	if err := viper.Unmarshal(&config); err != nil {
-		log.Errorf("[msg: unmarshal godis config failed] [err: %v]\r\n", err)
+		log.Error().Err(err).Msg("unmarshal godis config failed")
 	}
-	log.Infof("[msg: start godis with config] [%#v ]\r\n", config)
+	log.Info().Interface("config", config).Msg("msg: start godis with config")
 
-	server, err := server.InitGodisServerInstance(&config, log)
+	server, err := server.InitGodisServerInstance(&config, &log)
 	if err != nil {
-		log.Errorf("[msg: init server failed] [err: %v]\r\n", err)
+		log.Error().Err(err).Msg("Init server failed")
 	}
 
-	log.Infof("[msg: init Godis Server success] [%#v]\r\n", server)
-
-	log.Info("[msg: Godis is running]\r\n")
+	log.Info().Msg("Godis is running")
 	server.AeLoop.AeMain()
 }

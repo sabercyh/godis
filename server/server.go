@@ -11,7 +11,7 @@ import (
 	"github.com/godis/errs"
 	"github.com/godis/net"
 	"github.com/godis/persistence"
-	"github.com/sirupsen/logrus"
+	"github.com/rs/zerolog"
 )
 
 type GodisServer struct {
@@ -21,7 +21,7 @@ type GodisServer struct {
 	DB       *db.GodisDB
 	clients  map[int]*GodisClient
 	AeLoop   *AeLoop
-	logger   *logrus.Logger
+	logger   *zerolog.Logger
 	AOF      *persistence.AOF
 	RDB      *persistence.RDB
 
@@ -39,19 +39,19 @@ var server *GodisServer // 定义server全局变量
 func AcceptHandler(loop *AeLoop, fd int, extra any) {
 	// 限制最大连接数
 	if len(server.clients) >= server.MaxClients {
-		server.logger.Infoln("exceed max clients len")
+		server.logger.Info().Msg("exceed max clients len")
 		return
 	}
 
 	cfd, err := net.Accept(fd)
 	if err != nil {
-		server.logger.Errorf("accept err: %v\n", err)
+		server.logger.Error().Err(err).Msg("accept err")
 		return
 	}
 	client := InitGodisClientInstance(cfd, server)
 	server.clients[cfd] = client
 	server.AeLoop.AddReadEvent(cfd, AE_READABLE, ReadQueryFromClient, client)
-	server.logger.Debugf("accept client, fd: %v\n", cfd)
+	server.logger.Debug().Msgf("accept client, fd: %v\n", cfd)
 }
 
 func ServerCron(loop *AeLoop, id int, extra any) {
@@ -62,7 +62,7 @@ func ServerCron(loop *AeLoop, id int, extra any) {
 		}
 		expireTime, err := entry.Val.Int64Val()
 		if err != nil {
-			server.logger.Printf("expire time is not int64, key: %v, err: %v\n", entry.Key.StrVal(), err)
+			server.logger.Error().Err(err).Msgf("expire time is not int64, key: %v", entry.Key.StrVal())
 			continue
 		}
 
@@ -73,7 +73,7 @@ func ServerCron(loop *AeLoop, id int, extra any) {
 	}
 }
 
-func InitGodisServerInstance(config *conf.Config, logger *logrus.Logger) (*GodisServer, error) {
+func InitGodisServerInstance(config *conf.Config, logger *zerolog.Logger) (*GodisServer, error) {
 	server = &GodisServer{
 		port:     config.Port,
 		workerID: config.WorkerID,
@@ -99,7 +99,7 @@ func InitGodisServerInstance(config *conf.Config, logger *logrus.Logger) (*Godis
 	} else {
 		err := server.RDB.Load(server.DB)
 		if err != nil && err != errs.RDBFileNotExistError {
-			server.logger.Error(err)
+			server.logger.Error().Err(err).Msg("")
 			os.Exit(0)
 		}
 	}
@@ -109,10 +109,10 @@ func InitGodisServerInstance(config *conf.Config, logger *logrus.Logger) (*Godis
 		return nil, err
 	}
 	if server.fd, err = net.TcpServer(server.port, server.logger); err != nil {
-		server.logger.Errorln("server start fail")
+		server.logger.Error().Msg("server start fail")
 	}
 	server.AeLoop.AddReadEvent(server.fd, AE_READABLE, AcceptHandler, nil)
 	server.AeLoop.AddTimeEvent(AE_NORMAL, 100, ServerCron, nil)
-	server.logger.Infoln("godis server is up.")
+	server.logger.Info().Msg("godis server is up")
 	return server, nil
 }

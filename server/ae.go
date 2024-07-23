@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	"github.com/godis/util"
-	"github.com/sirupsen/logrus"
+	"github.com/rs/zerolog"
 	"golang.org/x/sys/unix"
 )
 
@@ -51,7 +51,7 @@ type AeLoop struct {
 	fileEventFd     int
 	timeEventNextId int
 	stop            bool
-	logger          *logrus.Logger
+	logger          zerolog.Logger
 }
 
 func (loop *AeLoop) AddReadEvent(fd int, mask FeType, proc FileProc, extra any) {
@@ -60,7 +60,7 @@ func (loop *AeLoop) AddReadEvent(fd int, mask FeType, proc FileProc, extra any) 
 
 	err := unix.EpollCtl(loop.fileEventFd, op, fd, &unix.EpollEvent{Fd: int32(fd), Events: uint32(ev)})
 	if err != nil {
-		loop.logger.Errorf("epoll ctl err: %v\n", err)
+		loop.logger.Error().Err(err).Msg("epoll ctl faled")
 		return
 	}
 
@@ -70,8 +70,6 @@ func (loop *AeLoop) AddReadEvent(fd int, mask FeType, proc FileProc, extra any) 
 		proc:  proc,
 		extra: extra,
 	}
-
-	loop.logger.Debugf("ae add file event fd:%v, mask:%v\n", fd, mask)
 }
 
 func (loop *AeLoop) ModWriteEvent(fd int, mask FeType, proc FileProc, extra any) {
@@ -80,7 +78,7 @@ func (loop *AeLoop) ModWriteEvent(fd int, mask FeType, proc FileProc, extra any)
 
 	err := unix.EpollCtl(loop.fileEventFd, op, fd, &unix.EpollEvent{Fd: int32(fd), Events: uint32(ev)})
 	if err != nil {
-		loop.logger.Errorf("epoll mod err: %v\n", err)
+		loop.logger.Error().Err(err).Msg("epoll mod faled")
 		return
 	}
 
@@ -91,29 +89,26 @@ func (loop *AeLoop) ModWriteEvent(fd int, mask FeType, proc FileProc, extra any)
 		extra: extra,
 	}
 
-	loop.logger.Debugf("ae add write event fd:%v, mask:%v\n", fd, mask)
 }
 
-func (loop *AeLoop) RemoveWriteEvent(fd int, mask FeType) {
+func (loop *AeLoop) ModReadEvent(fd int) {
 	ev := unix.EPOLLIN
 	op := unix.EPOLL_CTL_MOD
 	err := unix.EpollCtl(loop.fileEventFd, op, fd, &unix.EpollEvent{Fd: int32(fd), Events: uint32(ev)})
 	if err != nil {
-		loop.logger.Printf("epoll mod err: %v\n", err)
+		loop.logger.Error().Err(err).Msg("epoll mod faled")
 	}
 	delete(loop.FileEvents, -1*fd)
-	loop.logger.Debugf("ae remove write event fd:%v, mask:%v\n", fd, mask)
 }
 
-func (loop *AeLoop) RemoveFileEvent(fd int, mask FeType) {
-	ev := unix.EPOLLIN
+func (loop *AeLoop) RemoveFileEvent(fd int) {
+	ev := unix.EPOLLIN | unix.EPOLLOUT
 	op := unix.EPOLL_CTL_DEL
 	err := unix.EpollCtl(loop.fileEventFd, op, fd, &unix.EpollEvent{Fd: int32(fd), Events: uint32(ev)})
 	if err != nil {
-		loop.logger.Printf("epoll del err: %v\n", err)
+		loop.logger.Error().Err(err).Msg("epoll del faled")
 	}
 	delete(loop.FileEvents, fd)
-	loop.logger.Debugf("ae remove write event fd:%v, mask:%v\n", fd, mask)
 }
 
 func (loop *AeLoop) AddTimeEvent(mask TeType, interval int64, proc TimeProc, extra any) int {
@@ -149,7 +144,7 @@ func (loop *AeLoop) RemoveTimeEvent(id int) {
 	}
 }
 
-func AeLoopCreate(logger *logrus.Logger) (*AeLoop, error) {
+func AeLoopCreate(logger *zerolog.Logger) (*AeLoop, error) {
 	epollFd, err := unix.EpollCreate1(0)
 	if err != nil {
 		return nil, err
@@ -159,7 +154,7 @@ func AeLoopCreate(logger *logrus.Logger) (*AeLoop, error) {
 		fileEventFd:     epollFd,
 		timeEventNextId: 1,
 		stop:            false,
-		logger:          logger,
+		logger:          logger.With().Logger(),
 	}, nil
 }
 
@@ -189,7 +184,7 @@ retry:
 		if err == unix.EINTR {
 			goto retry
 		}
-		loop.logger.Errorf("epoll wait warnning: %v\n", err)
+		loop.logger.Error().Err(err).Msg("epoll wait faled")
 		return
 	}
 
@@ -264,5 +259,5 @@ func (loop *AeLoop) AeMain() {
 	server.AOF.Buffer.Flush()
 	server.AOF.File.Close()
 
-	loop.logger.Infoln("ae loop exit")
+	loop.logger.Info().Msg("ae loop exit")
 }

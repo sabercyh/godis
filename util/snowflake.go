@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/godis/errs"
-	"github.com/sirupsen/logrus"
+	"github.com/rs/zerolog"
 )
 
 const (
@@ -27,22 +27,22 @@ var (
 )
 
 type SnowFlake struct {
-	log            *logrus.Logger
+	log            zerolog.Logger
 	workerID       int64
 	sequence       int64
 	lastTimeMillis int64
 }
 
-func NewSnowFlake(log *logrus.Logger, workerID int64) (*SnowFlake, error) {
+func NewSnowFlake(log zerolog.Logger, workerID int64) (*SnowFlake, error) {
 	if snowFlake == nil {
 		if workerID > maxWorkerID || workerID < 0 {
-			log.Errorf("[msg: get snowflake unique id fail of worker_id over max] [worker_id: %d]", workerID)
+			log.Error().Int64("worker_id", workerID).Msg("get snowflake unique id fail of worker_id over max")
 			return nil, errs.UnknownError
 		}
 
 		once.Do(func() {
 			snowFlake = &SnowFlake{
-				log:            log,
+				log:            log.With().Logger(),
 				workerID:       workerID,
 				sequence:       0,
 				lastTimeMillis: 0,
@@ -55,7 +55,7 @@ func NewSnowFlake(log *logrus.Logger, workerID int64) (*SnowFlake, error) {
 func (s *SnowFlake) NextID() (int64, error) {
 	currentTimeMillis := GetMsTime()
 	if currentTimeMillis < s.lastTimeMillis {
-		s.log.Errorf("[msg: get snowflake unique id fail of last_timestamp is not right] [current: %d] [last: %d] [worker_id: %d]", currentTimeMillis, s.lastTimeMillis, s.workerID)
+		s.log.Error().Int64("currentTimeMillis", currentTimeMillis).Int64("lastTimeMillis", s.lastTimeMillis).Int64("workerID", s.workerID).Msg("get snowflake unique id fail of last_timestamp is not right")
 		return 0, errs.UnknownError
 	}
 	if currentTimeMillis == s.lastTimeMillis {
