@@ -11,6 +11,7 @@ import (
 	"github.com/godis/errs"
 	"github.com/godis/net"
 	"github.com/godis/persistence"
+	"github.com/panjf2000/ants/v2"
 	"github.com/rs/zerolog"
 )
 
@@ -31,7 +32,9 @@ type GodisServer struct {
 	SlowLogMaxLen     int
 
 	MaxClients int
-	MaxThreads int
+
+	ReadPool  *ants.PoolWithFunc
+	WritePool *ants.PoolWithFunc
 }
 
 var server *GodisServer // 定义server全局变量
@@ -89,7 +92,6 @@ func InitGodisServerInstance(config *conf.Config, logger *zerolog.Logger) (*Godi
 		SlowLogSlowerThan: config.SlowLogSlowerThan,
 		SlowLogMaxLen:     config.SlowLogMaxLen,
 		MaxClients:        config.MaxClients,
-		MaxThreads:        runtime.NumCPU(),
 	}
 
 	if server.AOF.AppendOnly {
@@ -109,10 +111,27 @@ func InitGodisServerInstance(config *conf.Config, logger *zerolog.Logger) (*Godi
 		return nil, err
 	}
 	if server.fd, err = net.TcpServer(server.port, server.logger); err != nil {
-		server.logger.Error().Msg("server start fail")
+		server.logger.Error().Msg("[msg:server start fail]")
 	}
+
+	server.ReadPool, err = ants.NewPoolWithFunc(runtime.GOMAXPROCS(0), func(fd interface{}) {
+		ReadBuffer(fd.(int))
+		wg.Done()
+	})
+	if err != nil {
+		server.logger.Error().Msg("[msg:create read pool fail]")
+	}
+
+	server.WritePool, err = ants.NewPoolWithFunc(runtime.GOMAXPROCS(0), func(fd interface{}) {
+		SendReplyToClient(fd.(int))
+		wg.Done()
+	})
+	if err != nil {
+		server.logger.Error().Msg("[msg:create write pool fail]")
+	}
+
 	server.AeLoop.AddReadEvent(server.fd, AE_READABLE, AcceptHandler, nil)
 	server.AeLoop.AddTimeEvent(AE_NORMAL, 100, ServerCron, nil)
-	server.logger.Info().Msg("godis server is up")
+	server.logger.Info().Msg("[msg:godis server is up]")
 	return server, nil
 }

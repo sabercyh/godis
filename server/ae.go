@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/godis/util"
+	"github.com/panjf2000/ants/v2"
 	"github.com/rs/zerolog"
 	"golang.org/x/sys/unix"
 )
@@ -226,16 +227,18 @@ func (loop *AeLoop) AeProcess(tes []*AeTimeEvent, fes []*AeFileEvent) {
 		for _, fe := range fes {
 			if fe.mask == AE_READABLE && fe.fd != server.fd {
 				wg.Add(1)
-				go func(fd int) {
-					ReadBuffer(fd)
-					wg.Done()
-				}(fe.fd)
+				// go func(fd int) {
+				// 	ReadBuffer(fd)
+				// 	wg.Done()
+				// }(fe.fd)
+				server.ReadPool.Invoke(fe.fd)
 			} else if fe.mask == AE_WRITABLE {
 				wg.Add(1)
-				go func(fd int) {
-					SendReplyToClient(fd)
-					wg.Done()
-				}(fe.fd)
+				// go func(fd int) {
+				// 	SendReplyToClient(fd)
+				// 	wg.Done()
+				// }(fe.fd)
+				server.WritePool.Invoke(fe.fd)
 			}
 		}
 		wg.Wait()
@@ -259,5 +262,9 @@ func (loop *AeLoop) AeMain() {
 	server.AOF.Buffer.Flush()
 	server.AOF.File.Close()
 
+	server.ReadPool.Release()
+	server.WritePool.Release()
+
+	ants.Release()
 	loop.logger.Info().Msg("ae loop exit")
 }

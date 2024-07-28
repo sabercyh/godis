@@ -9,6 +9,7 @@ import (
 	"github.com/godis/server"
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
+	_ "go.uber.org/automaxprocs"
 )
 
 func main() {
@@ -29,18 +30,18 @@ func main() {
 	viper.AddConfigPath("./conf/")
 	viper.SetConfigName("godis-conf")
 	if err := viper.ReadInConfig(); err != nil {
-		log.Error().Err(err).Msg("load godis config failed")
+		log.Error().Err(err).Msg("[msg:load godis config failed]")
 	}
 	if err := viper.Unmarshal(&config); err != nil {
-		log.Error().Err(err).Msg("unmarshal godis config failed")
+		log.Error().Err(err).Msg("[msg:unmarshal godis config failed]")
 	}
-	log.Info().Interface("config", config).Msg("msg: start godis with config")
+	log.Info().Interface("config", config).Msg("[msg:start godis with config]")
 
 	server, err := server.InitGodisServerInstance(&config, &log)
 	if err != nil {
-		log.Error().Err(err).Msg("Init server failed")
+		log.Error().Err(err).Msg("[msg:init server failed]")
 	}
 
-	log.Info().Msg("Godis is running")
+	log.Info().Msg("Godis is running...")
 	server.AeLoop.AeMain()
 }
