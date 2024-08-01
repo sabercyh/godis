@@ -36,13 +36,13 @@ func (zs *ZSet) Zadd(args []*Gobj) (int, error) {
 				continue
 			}
 			// 如果分数不相等，则更新
-			zs.Dict.Set(args[i+1], args[i])
 			zs.skiplist.UpdateScore(oldScore, args[i+1].StrVal(), score)
 		} else {
-			zs.Dict.Set(args[i+1], args[i])
 			zs.skiplist.Insert(score, args[i+1].StrVal())
 			newCount++
 		}
+		zs.Dict.Set(args[i+1], args[i])
+
 		// zs.skiplist.PrintSkipList()
 	}
 	return newCount, nil

@@ -16,6 +16,8 @@ import (
 	"github.com/rs/zerolog"
 )
 
+var wgArgs sync.WaitGroup
+
 const sub = 'a' - 'A'
 
 type GodisClient struct {
@@ -37,7 +39,7 @@ func InitGodisClientInstance(fd int, server *GodisServer) *GodisClient {
 		fd:       fd,
 		db:       server.DB,
 		queryBuf: make([]byte, conf.GODIS_IO_BUF),
-		reply:    bytes.NewBuffer(make([]byte, 0, conf.GODIS_MAX_BULK)),
+		reply:    bytes.NewBuffer(make([]byte, 0, conf.GODIS_REPLY_BUF)),
 		logEntry: server.logger.With().Int("client-fd", fd).Logger(),
 		closed:   false,
 	}
@@ -185,7 +187,6 @@ func lookupCommand(cmdStr string) *GodisCommand {
 }
 
 func SendReplyToClient(fd int) {
-	// client.logEntry.Debugf("SendReplyToClient, reply len:%v\n", client.reply.Length())
 	client := server.clients[fd]
 	if client.reply.Len() > 0 {
 		n, err := net.Write(client.fd, client.reply.Bytes())
@@ -195,6 +196,7 @@ func SendReplyToClient(fd int) {
 			client.closed = true
 			return
 		}
+		client.reply.Reset()
 	}
 }
 
@@ -204,14 +206,38 @@ func ReplyClient(loop *AeLoop, fd int, extra any) {
 		freeClient(client)
 		return
 	}
-	client.reply = bytes.NewBuffer(make([]byte, 0, conf.GODIS_MAX_BULK))
 	loop.ModReadEvent(fd)
 }
 
 func (client *GodisClient) AddReplyStr(str string) {
 	if client.fd != -1 {
-		bytes := util.StringToBytes(str)
-		client.reply.Write(bytes)
+		client.reply.WriteString(str)
+		server.AeLoop.ModWriteEvent(client.fd, AE_WRITABLE, ReplyClient, client)
+
+	}
+}
+
+func (client *GodisClient) AddReplyStrVal(str string) {
+	if client.fd != -1 {
+
+		client.reply.WriteByte('$')
+		client.reply.WriteString(strconv.Itoa(len(str)))
+		client.reply.WriteString("\r\n")
+		client.reply.WriteString(str)
+		client.reply.WriteString("\r\n")
+
+		server.AeLoop.ModWriteEvent(client.fd, AE_WRITABLE, ReplyClient, client)
+
+	}
+}
+
+func (client *GodisClient) AddReplyIntVal(numVal string) {
+	if client.fd != -1 {
+
+		client.reply.WriteByte(':')
+		client.reply.WriteString(numVal)
+		client.reply.WriteString("\r\n")
+
 		server.AeLoop.ModWriteEvent(client.fd, AE_WRITABLE, ReplyClient, client)
 
 	}
@@ -225,7 +251,6 @@ func (client *GodisClient) AddReplyBytes(bytes []byte) {
 }
 func ProcessCommand(c *GodisClient) {
 	cmdStr := c.args[0].StrVal()
-	// c.logEntry.Debugf("process command: %v\n", cmdStr)
 	if cmdStr == "quit" {
 		freeClient(c)
 		return
@@ -306,7 +331,6 @@ func ReadQueryFromClient(loop *AeLoop, fd int, extra any) {
 		freeClient(client)
 		return
 	}
-	// client.logEntry.Debugf("ReadQueryFromClient, queryBuf : %v\n", string(client.queryBuf))
 	err := ProcessQueryBuf(client)
 	if err != nil {
 		client.logEntry.Error().Err(err).Msg("process query buf")
@@ -322,10 +346,8 @@ func (client *GodisClient) ReadQueryFromAOF() {
 			break
 		}
 		// 更新client参数
-		// fmt.Println(n, client.queryLen, len(client.queryBuf), cap(client.queryBuf))
 		client.queryLen += n
 		client.logEntry.Printf("read %v bytes from client:%v\n", n, client.fd)
-		// client.logEntry.Printf("ReadQueryFromAOF, queryBuf : %v\n", client.queryBuf[:client.queryLen])
 
 		err = ProcessQueryBuf(client)
 		if err != nil {
@@ -340,16 +362,18 @@ func (client *GodisClient) ReadQueryFromAOF() {
 	}
 }
 
+func freeArg(client *GodisClient, i int) {
+
+	client.args[i].DecrRefCount()
+	wgArgs.Done()
+}
 func freeArgs(client *GodisClient) {
-	var wg sync.WaitGroup
+
 	for i := range client.args {
-		wg.Add(1)
-		go func(i int) {
-			client.args[i].DecrRefCount()
-			wg.Done()
-		}(i)
+		wgArgs.Add(1)
+		go freeArg(client, i)
 	}
-	wg.Wait()
+	wgArgs.Wait()
 	client.args = client.args[:0]
 }
 

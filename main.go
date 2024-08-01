@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"os"
 	"runtime/pprof"
 	"time"
@@ -13,15 +14,28 @@ import (
 )
 
 func main() {
+	var pfile string
+	var logLevel string
+	flag.StringVar(&pfile, "pfile", "./cpu.pprof", "pprof filename")
+	flag.StringVar(&logLevel, "loglevel", "info", "log level")
+	flag.Parse()
+
 	log := zerolog.
 		New(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.DateTime}).
-		Level(zerolog.InfoLevel).
 		With().Caller().
 		Timestamp().
 		Logger()
 
-	if log.GetLevel() == zerolog.DebugLevel {
-		f, _ := os.OpenFile("./cpu.pprof", os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0644)
+	if logLevel == "trace" {
+		log = log.Level(zerolog.TraceLevel)
+	} else if logLevel == "debug" {
+		log = log.Level(zerolog.DebugLevel)
+	} else if logLevel == "info" {
+		log = log.Level(zerolog.InfoLevel)
+	}
+
+	if log.GetLevel() == zerolog.TraceLevel {
+		f, _ := os.OpenFile(pfile, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0644)
 		defer f.Close()
 		pprof.StartCPUProfile(f)
 		defer pprof.StopCPUProfile()

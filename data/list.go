@@ -81,7 +81,7 @@ func (list *List) ForwardIndex(index int) *Node {
 }
 
 func (list *List) RangeVal(left, right int) []byte {
-	reply := new(bytes.Buffer)
+	reply := bytes.NewBuffer(make([]byte, 0, 128))
 	if left < 0 {
 		left = list.length + left
 	}

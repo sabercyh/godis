@@ -63,8 +63,6 @@ func (dict *Dict) GStrHash(key *Gobj) int64 {
 	return hashKey
 }
 
-
-
 func dictIteratorCreate(dict *Dict) *dictIterator {
 	return &dictIterator{
 		dict:    dict,
@@ -181,19 +179,32 @@ func (dict *Dict) expandIfNeeded() error {
 }
 
 // return the index of a free slot, return -1 if the key is exists or err.
-func (dict *Dict) keyIndex(key *Gobj) int64 {
+func (dict *Dict) keyHash(key *Gobj) int64 {
 	err := dict.expandIfNeeded()
 	if err != nil {
 		return -1
 	}
-	h := dict.GStrHash(key)
+
+	return dict.GStrHash(key)
+}
+
+func (dict *Dict) AddRaw(key, val *Gobj) *Entry {
+	if dict.isRehashing() {
+		dict.rehashStep()
+	}
+
+	h := dict.keyHash(key)
+	if h == -1 {
+		return nil
+	}
+
 	var idx int64
 	for i := 0; i <= 1; i++ {
 		idx = h & dict.hts[i].mask
 		e := dict.hts[i].table[idx]
 		for e != nil {
 			if GStrEqual(e.Key, key) {
-				return -1
+				return e
 			}
 			e = e.next
 		}
@@ -201,17 +212,7 @@ func (dict *Dict) keyIndex(key *Gobj) int64 {
 			break
 		}
 	}
-	return idx
-}
 
-func (dict *Dict) AddRaw(key *Gobj) *Entry {
-	if dict.isRehashing() {
-		dict.rehashStep()
-	}
-	idx := dict.keyIndex(key)
-	if idx == -1 {
-		return nil
-	}
 	var ht *htable
 	if dict.isRehashing() {
 		ht = dict.hts[1]
@@ -220,41 +221,33 @@ func (dict *Dict) AddRaw(key *Gobj) *Entry {
 	}
 	var e Entry
 	e.Key = key
+	e.Val = val
 	key.IncrRefCount()
 	e.next = ht.table[idx]
 	ht.table[idx] = &e
 	ht.used++
-	return &e
-}
-
-// add a new key-val pair, return err if key exists
-func (dict *Dict) Add(key, val *Gobj) error {
-	entry := dict.AddRaw(key)
-	if entry == nil {
-		return errs.KeyExistsError
-	}
-	entry.Val = val
-	val.IncrRefCount()
 	return nil
 }
 
+// add a new key-val pair, return err if key exists
 func (dict *Dict) Set(key, val *Gobj) int {
-	if err := dict.Add(key, val); err == nil {
+	entry := dict.AddRaw(key, val)
+	if entry == nil {
 		return 1
 	}
-	entry := dict.Find(key)
 	entry.Val.DecrRefCount()
 	entry.Val = val
-	entry.Val.IncrRefCount()
 
 	return 0
 }
 
 func (dict *Dict) SetNx(key, val *Gobj) error {
-	if err := dict.Add(key, val); err != nil {
-		return err
+	entry := dict.AddRaw(key, val)
+	if entry == nil {
+		return nil
 	}
-	return nil
+
+	return errs.KeyExistsError
 }
 
 func freeEntry(e *Entry) {

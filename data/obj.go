@@ -71,7 +71,7 @@ func (o *Gobj) DecrRefCount() {
 	o.RefCount--
 	if o.RefCount == 0 {
 		// let GC do the work
-		o.Val_ = nil
+		o = nil
 	}
 }
 

@@ -201,70 +201,10 @@ func (sl *SkipList) Delete(member string, score float64) error {
 	return errs.SkipListDeleteNodeError
 }
 
-// DeleteNode 删除skiplist中的节点
-func (sl *SkipList) DeleteNode(x *skipListNode, update []*skipListNode) {
-	// 进行链表的断开和重新连接并且更新span
-	for i := 0; i < sl.level; i-- {
-		if update[i].level[i].forward == x {
-			update[i].level[i].forward = x.level[i].forward
-			update[i].level[i].span += x.level[i].span - 1
-		} else {
-			update[i].level[i].span -= 1
-		}
-	}
-	// 判断删除的节点是否是最后一个节点，如果不是，需要进行backend的更新
-	if x.level[0].forward != nil {
-		x.level[0].forward.backward = x.backward
-	} else {
-		sl.tail = x.backward
-	}
-
-	for sl.level > 1 && sl.head.level[sl.level-1].forward == nil {
-		sl.level--
-	}
-
-	sl.length--
-}
-
 // UpdateScore 更新member-score的分数
-func (sl *SkipList) UpdateScore(score float64, member string, newScore float64) {
-	var update [SkiplistMaxlevel]*skipListNode // 存储目标节点在每个level的前驱节点
-	// 查找目标节点在每个level的前驱节点
-	x := sl.head
-	for i := sl.level - 1; i >= 0; i-- {
-		for x.level[i].forward != nil && (x.level[i].forward.score < score || (x.level[i].forward.score == score && x.level[i].forward.member < member)) {
-			x = x.level[i].forward
-		}
-		update[i] = x
-	}
-	// 判断这个节点是不是我们需要的节点
-	x = x.level[0].forward
-	// 如果这个节点不是我们要修改的节点,则查找失败
-	if !(x != nil && x.member == member && x.score == score) {
-		return
-	}
-	/*
-		如果新修改的节点的分数不会影响这个节点在skiplist中的位置则不需要进行位置的移动
-		可能不需要更改位置的情况
-		当前节点位于开头
-			1. 只有1个
-			2. 新的分数比第二节点的分数小
-		当前节点位于结尾
-			1. 只有一个
-			2. 新的分数比前一节点的分数大
-		当前节点位于中间
-			1. 新的分数大于前一个节点、小于后一个节点
-	*/
-	if (x.backward == nil || x.backward.score < newScore) && (x.level[0].forward == nil || x.level[0].forward.score > newScore) {
-		x.score = newScore
-		return
-	}
-	/*
-		如果新插入的节点会改变原来节点的相对位置，则需要
-		1. 删除该节点
-		2. 插入新的节点
-	*/
-	sl.Insert(score, member)
+func (sl *SkipList) UpdateScore(oldScore float64, member string, newScore float64) {
+	sl.Delete(member, oldScore)
+	sl.Insert(newScore, member)
 }
 
 func (sl *SkipList) SearchByRangeScore(start, end float64) int {
