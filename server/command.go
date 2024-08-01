@@ -126,11 +126,8 @@ func shutdownCommand(c *GodisClient) (bool, error) {
 func setCommand(c *GodisClient) (bool, error) {
 	key := c.args[1]
 	val := c.args[2]
-	if val.Type_ != conf.GSTR {
-		c.AddReplyStr("-ERR wrong type\r\n")
-		return false, errs.TypeCheckError
-	}
 	server.DB.Data.Set(key, val)
+	val.IncrRefCount()
 	server.DB.Expire.Delete(key)
 	c.AddReplyStr("+OK\r\n")
 	return true, nil
@@ -146,10 +143,8 @@ func msetCommand(c *GodisClient) (bool, error) {
 	for i := 1; i < len(c.args); i += 2 {
 		key = c.args[i]
 		val = c.args[i+1]
-		if val.Type_ != conf.GSTR {
-			continue
-		}
 		server.DB.Data.Set(key, val)
+		val.IncrRefCount()
 		server.DB.Expire.Delete(key)
 	}
 
@@ -163,13 +158,15 @@ func getCommand(c *GodisClient) (bool, error) {
 	if val == nil {
 		c.AddReplyStr("$-1\r\n")
 		return false, errs.KeyNotExistError
-	} else if val.Type_ != conf.GSTR {
+	}
+
+	str := val.StrVal()
+	if str == "" {
 		c.AddReplyStr("-WRONGTYPE Operation against a key holding the wrong kind of value\r\n")
 		return false, errs.TypeCheckError
-	} else {
-		str := val.StrVal()
-		c.AddReplyStr(fmt.Sprintf("$%d\r\n%v\r\n", len(str), str))
 	}
+
+	c.AddReplyStrVal(str)
 	return true, nil
 
 }
@@ -208,12 +205,13 @@ func incrCommand(c *GodisClient) (bool, error) {
 			c.AddReplyStr("-ERR value is not an integer or out of range\r\n")
 			return false, errs.TypeCheckError
 		}
-		rawVal.Val_ = strconv.Itoa(num)
-		c.AddReplyStr(fmt.Sprintf(":%d\r\n", num))
+		numVal := strconv.Itoa(num)
+		rawVal.Val_ = numVal
+		c.AddReplyIntVal(numVal)
 
 	} else {
-		num := "1"
-		server.DB.Data.Set(key, data.CreateObject(conf.GSTR, num))
+		numVal := "1"
+		server.DB.Data.Set(key, data.CreateObject(conf.GSTR, numVal))
 		c.AddReplyStr(":1\r\n")
 	}
 	return true, nil
@@ -223,10 +221,6 @@ func incrCommand(c *GodisClient) (bool, error) {
 func setnxCommand(c *GodisClient) (bool, error) {
 	key := c.args[1]
 	val := c.args[2]
-	if val.Type_ != conf.GSTR {
-		c.AddReplyStr("-ERR wrong type\r\n")
-		return false, errs.TypeCheckError
-	}
 	err := server.DB.Data.SetNx(key, val)
 	if err != nil {
 		c.AddReplyStr(":0\r\n")
@@ -255,10 +249,6 @@ func existsCommand(c *GodisClient) (bool, error) {
 func expireCommand(c *GodisClient) (bool, error) {
 	key := c.args[1]
 	val := c.args[2]
-	if val.Type_ != conf.GSTR {
-		c.AddReplyStr("-ERR value is not an integer or out of range\r\n")
-		return false, errs.TypeCheckError
-	}
 	seconds, err := val.Int64Val()
 	if err != nil {
 		return false, err
@@ -293,7 +283,7 @@ func lpushCommand(c *GodisClient) (bool, error) {
 	for i := 2; i < len(c.args); i++ {
 		list.LPush(c.args[i])
 	}
-	c.AddReplyStr(fmt.Sprintf(":%d\r\n", list.Length()))
+	c.AddReplyIntVal(strconv.Itoa(list.Length()))
 	return true, nil
 }
 func lpopCommand(c *GodisClient) (bool, error) {
@@ -314,7 +304,7 @@ func lpopCommand(c *GodisClient) (bool, error) {
 		c.AddReplyStr("$-1\r\n")
 		return false, nil
 	}
-	c.AddReplyStr(fmt.Sprintf("$%d\r\n%s\r\n", len(nodeVal.StrVal()), nodeVal.StrVal()))
+	c.AddReplyStrVal(nodeVal.StrVal())
 	return true, nil
 }
 func rpushCommand(c *GodisClient) (bool, error) {
@@ -339,7 +329,7 @@ func rpushCommand(c *GodisClient) (bool, error) {
 	for i := 2; i < len(c.args); i++ {
 		list.RPush(c.args[i])
 	}
-	c.AddReplyStr(fmt.Sprintf(":%d\r\n", list.Length()))
+	c.AddReplyIntVal(strconv.Itoa(list.Length()))
 	return true, nil
 }
 
@@ -361,7 +351,7 @@ func rpopCommand(c *GodisClient) (bool, error) {
 		c.AddReplyStr("$-1\r\n")
 		return false, nil
 	}
-	c.AddReplyStr(fmt.Sprintf("$%d\r\n%s\r\n", len(nodeVal.StrVal()), nodeVal.StrVal()))
+	c.AddReplyStrVal(nodeVal.StrVal())
 	return true, nil
 }
 
@@ -516,7 +506,7 @@ func hsetCommand(c *GodisClient) (bool, error) {
 		count += ht.Set(c.args[i], c.args[i+1])
 	}
 
-	c.AddReplyStr(fmt.Sprintf(":%d\r\n", count))
+	c.AddReplyIntVal(strconv.Itoa(count))
 	return true, nil
 }
 
@@ -646,7 +636,7 @@ func saddCommand(c *GodisClient) (bool, error) {
 	for i := 2; i < len(c.args); i++ {
 		set.SAdd(c.args[i])
 	}
-	c.AddReplyStr(fmt.Sprintf(":%d\r\n", set.Length()))
+	c.AddReplyIntVal(strconv.Itoa(set.Length()))
 
 	return true, nil
 }
@@ -787,7 +777,7 @@ func spopCommand(c *GodisClient) (bool, error) {
 		c.AddReplyStr("$-1\r\n")
 		return false, nil
 	}
-	c.AddReplyStr(fmt.Sprintf("$%d\r\n%s\r\n", len(setVal), setVal))
+	c.AddReplyStrVal(setVal)
 	return true, nil
 }
 
@@ -932,7 +922,7 @@ func zaddCommand(c *GodisClient) (bool, error) {
 		return false, err
 	}
 
-	c.AddReplyStr(fmt.Sprintf(":%d\r\n", newCount))
+	c.AddReplyIntVal(strconv.Itoa(newCount))
 
 	return true, nil
 }
@@ -1112,7 +1102,9 @@ func zpopminCommand(c *GodisClient) (bool, error) {
 		return false, err
 	}
 	s := strconv.FormatFloat(score, 'f', -1, 64)
-	c.AddReplyStr(fmt.Sprintf("*2\r\n$%d\r\n%s\r\n$%d\r\n%s\r\n", len(member), member, len(s), s))
+
+	c.AddReplyStrVal(member)
+	c.AddReplyStrVal(s)
 	return true, nil
 }
 

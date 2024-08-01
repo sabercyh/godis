@@ -32,7 +32,7 @@ const (
 	GODIS_IO_BUF     int = 1024 * 16
 	GODIS_MAX_BULK   int = 1024 * 4
 	GODIS_MAX_INLINE int = 1024 * 4
-	GODIS_REPLY_BUF  int = 512
+	GODIS_REPLY_BUF  int = 128
 )
 
 type Gtype uint8
