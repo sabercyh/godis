@@ -3,6 +3,7 @@ package server
 import (
 	"os"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/godis/conf"
@@ -16,15 +17,16 @@ import (
 )
 
 type GodisServer struct {
-	fd       int
-	port     int
-	workerID int64
-	DB       *db.GodisDB
-	clients  map[int]*GodisClient
-	AeLoop   *AeLoop
-	logger   *zerolog.Logger
-	AOF      *persistence.AOF
-	RDB      *persistence.RDB
+	fd         int
+	port       int
+	workerID   int64
+	DB         *db.GodisDB
+	clients    map[int]*GodisClient
+	clientPool sync.Pool
+	AeLoop     *AeLoop
+	logger     *zerolog.Logger
+	AOF        *persistence.AOF
+	RDB        *persistence.RDB
 
 	Slowlog           *data.List
 	SlowLogEntryID    int64
@@ -51,7 +53,12 @@ func AcceptHandler(loop *AeLoop, fd int, extra any) {
 		server.logger.Error().Err(err).Msg("accept err")
 		return
 	}
-	client := InitGodisClientInstance(cfd, server)
+
+	client := server.clientPool.Get().(*GodisClient)
+	client.fd = cfd
+	client.logEntry = server.logger.With().Int("client-fd", client.fd).Logger()
+	client.closed = false
+
 	server.clients[cfd] = client
 	server.AeLoop.AddReadEvent(cfd, AE_READABLE, ReadQueryFromClient, client)
 	server.logger.Debug().Msgf("accept client, fd: %v\n", cfd)
@@ -95,7 +102,10 @@ func InitGodisServerInstance(config *conf.Config, logger *zerolog.Logger) (*Godi
 	}
 
 	if server.AOF.AppendOnly {
-		AOFClient := InitGodisClientInstance(-1, server)
+		AOFClient := InitGodisClientInstance()
+		AOFClient.fd = -1
+		AOFClient.logEntry = server.logger.With().Int("client-fd", -1).Logger()
+
 		AOFClient.ReadQueryFromAOF()
 		freeAOFClient(AOFClient)
 	} else {
@@ -128,6 +138,12 @@ func InitGodisServerInstance(config *conf.Config, logger *zerolog.Logger) (*Godi
 	})
 	if err != nil {
 		server.logger.Error().Msg("[msg:create write pool fail]")
+	}
+
+	server.clientPool = sync.Pool{
+		New: func() interface{} {
+			return InitGodisClientInstance()
+		},
 	}
 
 	server.AeLoop.AddReadEvent(server.fd, AE_READABLE, AcceptHandler, nil)

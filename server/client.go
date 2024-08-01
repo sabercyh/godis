@@ -9,7 +9,6 @@ import (
 
 	"github.com/godis/conf"
 	"github.com/godis/data"
-	"github.com/godis/db"
 	"github.com/godis/errs"
 	"github.com/godis/net"
 	"github.com/godis/util"
@@ -22,7 +21,6 @@ const sub = 'a' - 'A'
 
 type GodisClient struct {
 	fd       int
-	db       *db.GodisDB
 	args     []*data.Gobj
 	reply    *bytes.Buffer
 	queryBuf []byte
@@ -34,14 +32,13 @@ type GodisClient struct {
 	closed   bool
 }
 
-func InitGodisClientInstance(fd int, server *GodisServer) *GodisClient {
+func InitGodisClientInstance() *GodisClient {
 	return &GodisClient{
-		fd:       fd,
-		db:       server.DB,
+		// fd:       fd,
 		queryBuf: make([]byte, conf.GODIS_IO_BUF),
 		reply:    bytes.NewBuffer(make([]byte, 0, conf.GODIS_REPLY_BUF)),
-		logEntry: server.logger.With().Int("client-fd", fd).Logger(),
-		closed:   false,
+		// logEntry: server.logger.With().Int("client-fd", fd).Logger(),
+		closed: false,
 	}
 }
 
@@ -382,11 +379,13 @@ func freeClient(client *GodisClient) {
 	delete(server.clients, client.fd)
 	server.AeLoop.RemoveFileEvent(client.fd)
 	net.Close(client.fd)
+	server.clientPool.Put(client)
 }
 
 func freeAOFClient(client *GodisClient) {
 	freeArgs(client)
 	delete(server.clients, client.fd)
+	server.clientPool.Put(client)
 }
 
 func ReadBuffer(fd int) {
