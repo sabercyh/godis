@@ -3,14 +3,17 @@ module github.com/godis
 go 1.19
 
 require (
+	github.com/panjf2000/ants/v2 v2.10.0
 	github.com/spaolacci/murmur3 v1.1.0
 	github.com/spf13/viper v1.18.2
+	go.uber.org/automaxprocs v1.5.3
 	golang.org/x/sys v0.15.0
 )
 
 require (
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.19 // indirect
+	golang.org/x/sync v0.5.0 // indirect
 )
 
 require (
