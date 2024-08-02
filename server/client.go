@@ -9,7 +9,6 @@ import (
 
 	"github.com/godis/conf"
 	"github.com/godis/data"
-	"github.com/godis/db"
 	"github.com/godis/errs"
 	"github.com/godis/net"
 	"github.com/godis/util"
@@ -22,7 +21,6 @@ const sub = 'a' - 'A'
 
 type GodisClient struct {
 	fd       int
-	db       *db.GodisDB
 	args     []*data.Gobj
 	reply    *bytes.Buffer
 	queryBuf []byte
@@ -34,22 +32,14 @@ type GodisClient struct {
 	closed   bool
 }
 
-func InitGodisClientInstance(fd int, server *GodisServer) *GodisClient {
+func InitGodisClientInstance() *GodisClient {
 	return &GodisClient{
-		fd:       fd,
-		db:       server.DB,
+		// fd:       fd,
 		queryBuf: make([]byte, conf.GODIS_IO_BUF),
 		reply:    bytes.NewBuffer(make([]byte, 0, conf.GODIS_REPLY_BUF)),
-		logEntry: server.logger.With().Int("client-fd", fd).Logger(),
-		closed:   false,
+		// logEntry: server.logger.With().Int("client-fd", fd).Logger(),
+		closed: false,
 	}
-}
-
-func resetClient(client *GodisClient) {
-	freeArgs(client)
-	client.cmdTy = conf.COMMAND_UNKNOWN
-	client.bulkLen = 0
-	client.bulkNum = 0
 }
 
 func (client *GodisClient) findLineInQuery() (int, error) {
@@ -79,7 +69,8 @@ func handleInlineBuf(client *GodisClient) (bool, error) {
 	subs := strings.Split(string(client.queryBuf[:index]), " ")
 	client.queryBuf = client.queryBuf[index+2:]
 	client.queryLen -= index + 2
-	client.args = make([]*data.Gobj, len(subs))
+	client.args = append(client.args, make([]*data.Gobj, len(subs)-len(client.args))...)
+
 	for i, v := range subs {
 		client.args[i] = data.CreateObject(conf.GSTR, v)
 	}
@@ -100,7 +91,7 @@ func handleBulkBuf(client *GodisClient) (bool, error) {
 			return true, nil
 		}
 		client.bulkNum = bnum
-		client.args = make([]*data.Gobj, bnum)
+		client.args = append(client.args, make([]*data.Gobj, bnum-len(client.args))...)
 	}
 	for client.bulkNum > 0 {
 		if client.bulkLen == 0 {
@@ -347,11 +338,11 @@ func (client *GodisClient) ReadQueryFromAOF() {
 		}
 		// 更新client参数
 		client.queryLen += n
-		client.logEntry.Printf("read %v bytes from client:%v\n", n, client.fd)
+		// client.logEntry.Printf("read %v bytes from client:%v\n", n, client.fd)
 
 		err = ProcessQueryBuf(client)
 		if err != nil {
-			client.logEntry.Printf("process query buf err: %v\n", err)
+			// client.logEntry.Printf("process query buf err: %v\n", err)
 			continue
 		}
 
@@ -363,12 +354,10 @@ func (client *GodisClient) ReadQueryFromAOF() {
 }
 
 func freeArg(client *GodisClient, i int) {
-
 	client.args[i].DecrRefCount()
 	wgArgs.Done()
 }
 func freeArgs(client *GodisClient) {
-
 	for i := range client.args {
 		wgArgs.Add(1)
 		go freeArg(client, i)
@@ -377,16 +366,34 @@ func freeArgs(client *GodisClient) {
 	client.args = client.args[:0]
 }
 
-func freeClient(client *GodisClient) {
+func resetClient(client *GodisClient) {
 	freeArgs(client)
+	client.cmdTy = conf.COMMAND_UNKNOWN
+	client.bulkLen = 0
+	client.bulkNum = 0
+}
+func freeClient(client *GodisClient) {
+	resetClient(client)
 	delete(server.clients, client.fd)
 	server.AeLoop.RemoveFileEvent(client.fd)
 	net.Close(client.fd)
+	client.reply.Reset()
+	client.queryBuf = client.queryBuf[:0]
+	client.queryLen = 0
+
+	server.clientPool.Put(client)
 }
 
 func freeAOFClient(client *GodisClient) {
-	freeArgs(client)
+	for i := range client.args {
+		if client.args == nil {
+			break
+
+		}
+		client.args[i].DecrRefCount()
+	}
 	delete(server.clients, client.fd)
+	client = nil
 }
 
 func ReadBuffer(fd int) {

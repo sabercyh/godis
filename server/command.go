@@ -504,6 +504,7 @@ func hsetCommand(c *GodisClient) (bool, error) {
 
 	for i := 2; i < len(c.args); i += 2 {
 		count += ht.Set(c.args[i], c.args[i+1])
+		c.args[i+1].IncrRefCount()
 	}
 
 	c.AddReplyIntVal(strconv.Itoa(count))
