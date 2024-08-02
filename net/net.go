@@ -5,11 +5,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const BACKLOG int = 64
+const BACKLOG int = 128
 
 func Accept(fd int) (int, error) {
 	nfd, _, err := unix.Accept(fd)
-	// ignore client addr for now
 	return nfd, err
 }
 
@@ -31,16 +30,14 @@ func TcpServer(port int, logger *zerolog.Logger) (int, error) {
 		logger.Error().Err(err).Msg("init socket failed")
 		return -1, nil
 	}
-	err = unix.SetsockoptInt(s, unix.SOL_SOCKET, unix.SO_REUSEPORT, port)
+	err = unix.SetsockoptInt(s, unix.SOL_SOCKET, unix.SO_REUSEADDR, 1)
 	if err != nil {
-		logger.Error().Err(err).Msg("set SO_REUSEPORT failed")
+		logger.Error().Err(err).Msg("set SO_REUSEADDR failed")
 		unix.Close(s)
 		return -1, nil
 	}
 	var addr unix.SockaddrInet4
-	// golang.syscall will handle htons
 	addr.Port = port
-	// golang will set addr.Addr = any(0)
 	err = unix.Bind(s, &addr)
 	if err != nil {
 		logger.Error().Err(err).Msg("bind addr failed")

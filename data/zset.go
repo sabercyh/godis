@@ -42,6 +42,7 @@ func (zs *ZSet) Zadd(args []*Gobj) (int, error) {
 			newCount++
 		}
 		zs.Dict.Set(args[i+1], args[i])
+		args[i].IncrRefCount()
 
 		// zs.skiplist.PrintSkipList()
 	}
