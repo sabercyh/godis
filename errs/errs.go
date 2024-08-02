@@ -33,6 +33,7 @@ var (
 	OutOfLimitError      = &GodisError{117, "cmd length out of limit error"}
 	WrongCmdError        = &GodisError{118, "wrong cmd error"}
 	DelKeyError          = &GodisError{119, "del key error"}
+	RDBLoadNumberError   = &GodisError{120, "rdb load number error"}
 )
 
 // 数据类型errors

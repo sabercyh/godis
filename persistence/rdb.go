@@ -357,10 +357,10 @@ func (rdb *RDB) LoadNumber(buffer []byte) ([]byte, int, error) {
 		return buffer[1:], int(buffer[0]), nil
 	case buffer[0]>>6 == 0x01:
 		return buffer[2:], int(uint16(buffer[0]&0x3f)<<8 | uint16(buffer[1])), nil
-	case buffer[0]>>6 == 0x10:
-		return buffer[5:], int(uint32(buffer[0]&0x3f)<<24 | uint32(buffer[1])<<16 | uint32(buffer[2])<<8 | uint32(buffer[3])), nil
+	case buffer[0]>>6 == 0x02:
+		return buffer[5:], int(uint32(buffer[1])<<24 | uint32(buffer[2])<<16 | uint32(buffer[3])<<8 | uint32(buffer[4])), nil
 	}
-	return nil, 0, errs.RDBLoadFailedError
+	return nil, 0, errs.RDBLoadNumberError
 }
 
 func (rdb *RDB) LoadCommand(buffer []byte, db *db.GodisDB) ([]byte, *data.Gobj, error) {
@@ -370,31 +370,37 @@ func (rdb *RDB) LoadCommand(buffer []byte, db *db.GodisDB) ([]byte, *data.Gobj, 
 	case conf.RDB_TYPE_STRING:
 		buffer, key, err = rdb.LoadString(buffer[1:], db)
 		if err != nil {
+			rdb.log.Error().Err(err).Msg("load string value failed")
 			return nil, nil, errs.RDBLoadFailedError
 		}
 	case conf.RDB_TYPE_LIST:
 		buffer, key, err = rdb.LoadList(buffer[1:], db)
 		if err != nil {
+			rdb.log.Error().Err(err).Msg("load list value failed")
 			return nil, nil, errs.RDBLoadFailedError
 		}
 	case conf.RDB_TYPE_HASH:
 		buffer, key, err = rdb.LoadDict(buffer[1:], db)
 		if err != nil {
+			rdb.log.Error().Err(err).Msg("load hash value failed")
 			return nil, nil, errs.RDBLoadFailedError
 		}
 	case conf.RDB_TYPE_SET:
 		buffer, key, err = rdb.LoadSet(buffer[1:], db)
 		if err != nil {
+			rdb.log.Error().Err(err).Msg("load set value failed")
 			return nil, nil, errs.RDBLoadFailedError
 		}
 	case conf.RDB_TYPE_ZSET:
 		buffer, key, err = rdb.LoadZset(buffer[1:], db)
 		if err != nil {
+			rdb.log.Error().Err(err).Msg("load zset value failed")
 			return nil, nil, errs.RDBLoadFailedError
 		}
 	case conf.RDB_TYPE_BIT:
 		buffer, key, err = rdb.LoadBitmap(buffer[1:], db)
 		if err != nil {
+			rdb.log.Error().Err(err).Msg("load bitmap value failed")
 			return nil, nil, errs.RDBLoadFailedError
 		}
 	default:
@@ -440,6 +446,7 @@ func (rdb *RDB) LoadList(buffer []byte, db *db.GodisDB) ([]byte, *data.Gobj, err
 	if err != nil {
 		return nil, nil, errs.RDBLoadFailedError
 	}
+
 	buffer, length, err := rdb.LoadNumber(buffer)
 	if err != nil {
 		return nil, nil, errs.RDBLoadFailedError
