@@ -33,7 +33,7 @@ func InitAOF(config *conf.Config, logger *zerolog.Logger) *AOF {
 	}
 
 	// 若有AOF文件则直接打开，不存在则创建
-	aof.File, err = os.OpenFile(config.Dir+config.AppendFilename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	aof.File, err = os.OpenFile(config.Dir+config.AppendFilename, os.O_RDWR|os.O_CREATE|os.O_APPEND|os.O_SYNC, 0666)
 	if err != nil {
 		logger.Error().Msg("open aof file failed")
 	}
@@ -131,12 +131,10 @@ func (aof *AOF) Save() error {
 	if n != len(aof.Command) || err != nil {
 		return errs.AOFBufferWriteError
 	}
-	go func() {
-		err := aof.Buffer.Flush()
-		if err != nil {
-			aof.logEntry.Error().Msg("flush aof buffer error")
-		}
-	}()
+	err = aof.Buffer.Flush()
+	if err != nil {
+		aof.logEntry.Error().Msg("flush aof buffer error")
+	}
 
 	return nil
 }

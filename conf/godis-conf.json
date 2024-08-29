@@ -9,7 +9,7 @@
     "appendonly":false,
     "dir":"./",
     "appendfilename":"appendonly.aof",
-    "appendfsync":"always",
+    "appendfsync":"everysec",
 
     "aof-use-rdb-preamble":true,
     "auto-aof-rewrite-percentage":100,
