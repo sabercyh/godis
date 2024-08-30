@@ -13,7 +13,6 @@ import (
 
 const (
 	INIT_SIZE    int64 = 8
-	FORCE_RATIO  int64 = 2
 	GROW_RATIO   int64 = 2
 	DEFAULT_STEP int   = 1
 )
@@ -171,8 +170,7 @@ func (dict *Dict) expandIfNeeded() error {
 	if dict.hts[0] == nil {
 		return dict.expand(INIT_SIZE)
 	}
-	// 当已经使用的空间是现存空间的三倍时，才会触发扩容
-	if (dict.hts[0].used > dict.hts[0].size) && (dict.hts[0].used/dict.hts[0].size > FORCE_RATIO) {
+	if dict.hts[0].used >= dict.hts[0].size {
 		return dict.expand(dict.hts[0].size * GROW_RATIO)
 	}
 	return nil

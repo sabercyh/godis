@@ -29,7 +29,6 @@ type GodisServer struct {
 	RDB        *persistence.RDB
 
 	Slowlog           *data.List
-	SlowLogEntryID    int64
 	SlowLogSlowerThan int64
 	SlowLogMaxLen     int
 
